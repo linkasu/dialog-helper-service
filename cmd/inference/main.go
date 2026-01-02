@@ -52,7 +52,7 @@ func buildSTT(cfg config.InferenceConfig, provider *iam.Provider) providers.STTC
 	case "mock":
 		return providers.NewMockSTT(os.Getenv("MOCK_STT_TRANSCRIPT"))
 	default:
-		return providers.NewYandexSTT(cfg.FolderID, cfg.STTModel, provider)
+		return providers.NewYandexSTT(cfg.FolderID, cfg.STTModel, provider, cfg.STTPollInterval, cfg.STTPollTimeout)
 	}
 }
 

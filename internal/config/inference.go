@@ -19,6 +19,8 @@ type InferenceConfig struct {
 	DefaultMaxCandidates int
 	DefaultTemperature   float64
 	DefaultMaxTokens     int
+	STTPollInterval      time.Duration
+	STTPollTimeout       time.Duration
 	PersistResults       bool
 	STTProvider          string
 	LLMProvider          string
@@ -40,6 +42,8 @@ func LoadInferenceConfig() (InferenceConfig, error) {
 		DefaultMaxCandidates: ParseIntEnv("DEFAULT_MAX_CANDIDATES", 5),
 		DefaultTemperature:   parseFloatEnv("DEFAULT_TEMPERATURE", 0.3),
 		DefaultMaxTokens:     ParseIntEnv("DEFAULT_MAX_TOKENS", 300),
+		STTPollInterval:      ParseDurationEnv("STT_POLL_INTERVAL", 200*time.Millisecond),
+		STTPollTimeout:       ParseDurationEnv("STT_POLL_TIMEOUT", 10*time.Second),
 		PersistResults:       parseBoolEnv("PERSIST_RESULTS", true),
 		STTProvider:          GetEnv("STT_PROVIDER", "yandex"),
 		LLMProvider:          GetEnv("LLM_PROVIDER", "yandex"),

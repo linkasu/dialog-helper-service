@@ -22,17 +22,28 @@ const (
 )
 
 type YandexSTT struct {
-	folderID string
-	model    string
-	provider *iam.Provider
-	client   *http.Client
+	folderID     string
+	model        string
+	provider     *iam.Provider
+	client       *http.Client
+	pollInterval time.Duration
+	pollTimeout  time.Duration
 }
 
-func NewYandexSTT(folderID, model string, provider *iam.Provider) *YandexSTT {
+func NewYandexSTT(folderID, model string, provider *iam.Provider, pollInterval, pollTimeout time.Duration) *YandexSTT {
+	if pollInterval <= 0 {
+		pollInterval = 200 * time.Millisecond
+	}
+	if pollTimeout <= 0 {
+		pollTimeout = 10 * time.Second
+	}
+
 	return &YandexSTT{
-		folderID: folderID,
-		model:    model,
-		provider: provider,
+		folderID:     folderID,
+		model:        model,
+		provider:     provider,
+		pollInterval: pollInterval,
+		pollTimeout:  pollTimeout,
 		client: &http.Client{
 			Timeout: 25 * time.Second,
 		},
@@ -125,7 +136,7 @@ func (y *YandexSTT) startRecognition(ctx context.Context, token string, req STTR
 }
 
 func (y *YandexSTT) waitOperation(ctx context.Context, token, operationID string) error {
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(y.pollTimeout)
 	for {
 		if time.Now().After(deadline) {
 			return errors.New("stt operation timeout")
@@ -165,7 +176,7 @@ func (y *YandexSTT) waitOperation(ctx context.Context, token, operationID string
 			return nil
 		}
 
-		timer := time.NewTimer(200 * time.Millisecond)
+		timer := time.NewTimer(y.pollInterval)
 		select {
 		case <-ctx.Done():
 			timer.Stop()

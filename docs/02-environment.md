@@ -27,6 +27,8 @@ yc config set folder-id b1go18ta52hg00o51kkg
 - `DEFAULT_MAX_CANDIDATES` (default: `5`)
 - `DEFAULT_TEMPERATURE` (default: `0.3`)
 - `DEFAULT_MAX_TOKENS` (default: `300`)
+- `STT_POLL_INTERVAL` (default: `200ms`)
+- `STT_POLL_TIMEOUT` (default: `10s`)
 - `PERSIST_RESULTS` (default: `true`)
 - `STT_PROVIDER` (`yandex` or `mock`)
 - `LLM_PROVIDER` (`yandex` or `mock`)
@@ -44,4 +46,3 @@ yc config set folder-id b1go18ta52hg00o51kkg
 ### Bootstrap tool
 - `YDB_DSN` (required)
 - `YC_IAM_TOKEN` (optional for local)
-
