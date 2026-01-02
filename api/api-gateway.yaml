@@ -66,6 +66,12 @@ paths:
         "200":
           description: OK
   /assets/{file}:
+    parameters:
+      - name: file
+        in: path
+        required: true
+        schema:
+          type: string
     get:
       x-yc-apigateway-integration:
         type: serverless_containers
@@ -121,6 +127,12 @@ paths:
         "200":
           description: OK
   /v1/admin/keys/{api_key_hash}:
+    parameters:
+      - name: api_key_hash
+        in: path
+        required: true
+        schema:
+          type: string
     delete:
       x-yc-apigateway-integration:
         type: serverless_containers
