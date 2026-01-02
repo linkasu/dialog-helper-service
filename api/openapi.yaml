@@ -1,0 +1,253 @@
+openapi: 3.0.3
+info:
+  title: Dialog Helper Service
+  version: 0.1.0
+servers:
+  - url: https://example.com
+paths:
+  /healthz:
+    get:
+      summary: Health check
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+  /v1/infer:
+    post:
+      summary: Generate transcript and answer candidates
+      parameters:
+        - in: header
+          name: X-API-KEY
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                audio:
+                  type: string
+                  format: binary
+                payload:
+                  type: string
+                  description: JSON-encoded InferPayload
+              required:
+                - payload
+            encoding:
+              payload:
+                contentType: application/json
+      responses:
+        "200":
+          description: Inference result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InferResponse"
+        "400":
+          description: Bad request
+        "401":
+          description: Unauthorized
+        "502":
+          description: STT/LLM error
+  /v1/admin/keys:
+    post:
+      summary: Create API key
+      parameters:
+        - in: header
+          name: X-ADMIN-KEY
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/APIKeyCreateRequest"
+      responses:
+        "200":
+          description: API key created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIKeyCreateResponse"
+  /v1/admin/system-prompt:
+    get:
+      summary: Get system prompt
+      parameters:
+        - in: header
+          name: X-ADMIN-KEY
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: System prompt
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  prompt:
+                    type: string
+                  version:
+                    type: string
+    post:
+      summary: Update system prompt
+      parameters:
+        - in: header
+          name: X-ADMIN-KEY
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                prompt:
+                  type: string
+                version:
+                  type: string
+              required:
+                - prompt
+      responses:
+        "200":
+          description: OK
+components:
+  schemas:
+    InferPayload:
+      type: object
+      properties:
+        prompt:
+          type: string
+        language:
+          type: string
+        persona:
+          type: string
+        user_id:
+          type: string
+        user_profile:
+          type: string
+        dialog_id:
+          type: string
+        step_id:
+          type: string
+        time_window_sec:
+          type: integer
+        transcript:
+          type: string
+        options:
+          $ref: "#/components/schemas/InferOptions"
+      required:
+        - prompt
+    InferOptions:
+      type: object
+      properties:
+        max_candidates:
+          type: integer
+        temperature:
+          type: number
+    InferResponse:
+      type: object
+      properties:
+        request_id:
+          type: string
+        dialog_hash:
+          type: string
+        user_hash:
+          type: string
+        transcript:
+          $ref: "#/components/schemas/TranscriptResult"
+        candidates:
+          type: array
+          items:
+            $ref: "#/components/schemas/AnswerCandidate"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/APIError"
+        meta:
+          $ref: "#/components/schemas/Meta"
+    TranscriptResult:
+      type: object
+      properties:
+        text:
+          type: string
+        language:
+          type: string
+    AnswerCandidate:
+      type: object
+      properties:
+        text:
+          type: string
+        rank:
+          type: integer
+        length:
+          type: integer
+        language:
+          type: string
+        confidence:
+          type: number
+    Meta:
+      type: object
+      properties:
+        cache_hit:
+          type: boolean
+        stt_latency_ms:
+          type: integer
+        llm_latency_ms:
+          type: integer
+        system_prompt_version:
+          type: string
+    APIError:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+    APIKeyCreateRequest:
+      type: object
+      properties:
+        client_id:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        rate_limit_per_minute:
+          type: integer
+        status:
+          type: string
+    APIKeyCreateResponse:
+      type: object
+      properties:
+        api_key:
+          type: string
+        api_key_hash:
+          type: string
+        client_id:
+          type: string
+        status:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        rate_limit_per_minute:
+          type: integer
+        created_at:
+          type: string
+          format: date-time

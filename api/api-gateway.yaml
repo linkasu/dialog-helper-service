@@ -1,0 +1,59 @@
+openapi: 3.0.3
+info:
+  title: Dialog Helper API Gateway
+  version: 0.1.0
+x-yc-apigateway:
+  service_account_id: ${SERVICE_ACCOUNT_ID}
+paths:
+  /healthz:
+    get:
+      x-yc-apigateway-integration:
+        type: http
+        url: ${INFERENCE_URL}/healthz
+        httpMethod: GET
+      responses:
+        "200":
+          description: OK
+  /v1/infer:
+    post:
+      x-yc-apigateway-integration:
+        type: http
+        url: ${INFERENCE_URL}/v1/infer
+        httpMethod: POST
+        headers:
+          X-API-KEY: "$request.header.X-API-KEY"
+      responses:
+        "200":
+          description: OK
+  /v1/admin/keys:
+    post:
+      x-yc-apigateway-integration:
+        type: http
+        url: ${STORAGE_URL}/v1/admin/keys
+        httpMethod: POST
+        headers:
+          X-ADMIN-KEY: "$request.header.X-ADMIN-KEY"
+      responses:
+        "200":
+          description: OK
+  /v1/admin/system-prompt:
+    get:
+      x-yc-apigateway-integration:
+        type: http
+        url: ${STORAGE_URL}/v1/admin/system-prompt
+        httpMethod: GET
+        headers:
+          X-ADMIN-KEY: "$request.header.X-ADMIN-KEY"
+      responses:
+        "200":
+          description: OK
+    post:
+      x-yc-apigateway-integration:
+        type: http
+        url: ${STORAGE_URL}/v1/admin/system-prompt
+        httpMethod: POST
+        headers:
+          X-ADMIN-KEY: "$request.header.X-ADMIN-KEY"
+      responses:
+        "200":
+          description: OK
