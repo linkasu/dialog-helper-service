@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LINKa Dialog Helper — мы поможем сказать</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Manrope:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="/assets/styles.css" rel="stylesheet">
+</head>
+<body>
+  <nav class="navbar navbar-expand-lg sticky-top">
+    <div class="container">
+      <a class="navbar-brand fw-semibold" href="/">LINKa Dialog Helper</a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="navbarNav">
+        <ul class="navbar-nav ms-auto">
+          <li class="nav-item"><a class="nav-link" href="/api/">Документация API</a></li>
+          <li class="nav-item"><a class="nav-link" href="/client.md">Гайд интеграции</a></li>
+          <li class="nav-item"><a class="nav-link" href="/admin/">Админ-панель</a></li>
+        </ul>
+      </div>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <div class="orb one"></div>
+    <div class="orb two"></div>
+    <div class="container">
+      <div class="row align-items-center g-4">
+        <div class="col-lg-7">
+          <span class="badge rounded-pill mb-3">LINKa — мы поможем сказать</span>
+          <h1 class="display-4 fw-semibold reveal">Помогаем говорить, когда говорить трудно.</h1>
+          <p class="lead text-muted reveal delay-1">
+            Dialog Helper — API для подсказок в диалоге: распознает речь, понимает контекст и предлагает тактичные варианты ответа.
+            Мы создаем инструменты, чтобы люди с нарушениями речи могли общаться уверенно и спокойно.
+          </p>
+          <div class="hero-cta d-flex flex-wrap gap-3 reveal delay-2">
+            <a class="btn btn-accent" href="/api/">Документация API</a>
+            <a class="btn btn-outline-sand" href="/client.md">Примеры интеграции</a>
+          </div>
+        </div>
+        <div class="col-lg-5">
+          <div class="glass reveal delay-2">
+            <h3 class="fw-semibold">Сервис для AAC и ассистивных решений</h3>
+            <p class="text-muted">
+              Мы продолжаем идею LINKa: помогать людям с ДЦП, последствиями инсульта, аутизмом и другими особенностями речи.
+              Теперь это доступно через API для приложений, планшетов, коммуникаторов и веб-сервисов.
+            </p>
+            <div class="d-flex gap-3 flex-wrap">
+              <span class="badge badge-soft">STT + LLM</span>
+              <span class="badge badge-soft">Минимальные данные</span>
+              <span class="badge badge-soft">Русский язык</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <section class="section">
+    <div class="container">
+      <div class="row g-4">
+        <div class="col-lg-6">
+          <div class="glass reveal">
+            <div class="icon-tile mb-3">01</div>
+            <h2 class="h3 fw-semibold">Зачем мы это делаем</h2>
+            <p class="text-muted">
+              LINKa всегда про поддержку общения. Мы хотим, чтобы каждый человек мог выразить мысль — быстро, с уважением к его стилю и биографии.
+              Dialog Helper снижает нагрузку на пользователя и помогает отвечать внятно, мягко и вовремя.
+            </p>
+            <ul class="text-muted">
+              <li>Сохраняем приватность: только хэши и минимум метаданных.</li>
+              <li>Учитываем контекст и тональность диалога.</li>
+              <li>Даем выбор из нескольких ответов.</li>
+            </ul>
+          </div>
+        </div>
+        <div class="col-lg-6">
+          <div class="glass reveal delay-1">
+            <div class="icon-tile mb-3">02</div>
+            <h2 class="h3 fw-semibold">Как это работает</h2>
+            <p class="text-muted">Интеграция занимает несколько часов и остается гибкой для ваших сценариев.</p>
+            <ol class="text-muted">
+              <li>Отправляете историю диалога и, при необходимости, аудио.</li>
+              <li>Получаете расшифровку и 3–5 вариантов ответа.</li>
+              <li>Показываете пользователю выбор и отправляете выбранную фразу.</li>
+            </ol>
+            <div class="mt-4">
+              <a class="btn btn-outline-sand" href="/api/">Смотреть API</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <div class="glass reveal">
+        <div class="row align-items-center g-3">
+          <div class="col-lg-8">
+            <h2 class="h3 fw-semibold">Регистрация доступа</h2>
+            <p class="text-muted">
+              Для получения ключа и подключения вашего продукта напишите нам на
+              <a href="mailto:feedback@linka.su">feedback@linka.su</a>.
+              Расскажите о проекте — мы подскажем оптимальную схему интеграции.
+            </p>
+          </div>
+          <div class="col-lg-4 text-lg-end">
+            <a class="btn btn-accent" href="mailto:feedback@linka.su">Запросить доступ</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="py-4">
+    <div class="container d-flex flex-wrap justify-content-between align-items-center">
+      <div class="text-muted">LINKa — помогаем сказать.</div>
+      <div class="text-muted">© 2026 LINKa</div>
+    </div>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

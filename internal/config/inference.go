@@ -25,6 +25,17 @@ type InferenceConfig struct {
 	STTProvider          string
 	LLMProvider          string
 	TimeWindowSec        int
+	MaxMessages          int
+	MaxMessageChars      int
+	MaxBiographyChars    int
+	MaxPersonaChars      int
+	MaxUserIDChars       int
+	MaxUserProfileChars  int
+	MaxDialogIDChars     int
+	MaxStepIDChars       int
+	MaxLanguageChars     int
+	MaxCandidates        int
+	MaxTemperature       float64
 }
 
 func LoadInferenceConfig() (InferenceConfig, error) {
@@ -48,6 +59,17 @@ func LoadInferenceConfig() (InferenceConfig, error) {
 		STTProvider:          GetEnv("STT_PROVIDER", "yandex"),
 		LLMProvider:          GetEnv("LLM_PROVIDER", "yandex"),
 		TimeWindowSec:        ParseIntEnv("DEFAULT_TIME_WINDOW_SEC", 600),
+		MaxMessages:          ParseIntEnv("MAX_MESSAGES", 64),
+		MaxMessageChars:      ParseIntEnv("MAX_MESSAGE_CHARS", 2000),
+		MaxBiographyChars:    ParseIntEnv("MAX_BIO_CHARS", 2000),
+		MaxPersonaChars:      ParseIntEnv("MAX_PERSONA_CHARS", 256),
+		MaxUserIDChars:       ParseIntEnv("MAX_USER_ID_CHARS", 128),
+		MaxUserProfileChars:  ParseIntEnv("MAX_USER_PROFILE_CHARS", 2000),
+		MaxDialogIDChars:     ParseIntEnv("MAX_DIALOG_ID_CHARS", 128),
+		MaxStepIDChars:       ParseIntEnv("MAX_STEP_ID_CHARS", 64),
+		MaxLanguageChars:     ParseIntEnv("MAX_LANGUAGE_CHARS", 32),
+		MaxCandidates:        ParseIntEnv("MAX_CANDIDATES", 10),
+		MaxTemperature:       parseFloatEnv("MAX_TEMPERATURE", 1.0),
 	}
 
 	if cfg.StorageURL == "" {
@@ -58,6 +80,12 @@ func LoadInferenceConfig() (InferenceConfig, error) {
 	}
 	if cfg.FolderID == "" {
 		return cfg, errMissing("YC_FOLDER_ID")
+	}
+	if cfg.MaxCandidates > 0 && cfg.MaxCandidates < cfg.DefaultMaxCandidates {
+		cfg.MaxCandidates = cfg.DefaultMaxCandidates
+	}
+	if cfg.MaxTemperature <= 0 {
+		cfg.MaxTemperature = 1.0
 	}
 
 	return cfg, nil

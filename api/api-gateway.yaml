@@ -5,6 +5,76 @@ info:
 x-yc-apigateway:
   service_account_id: "{{SERVICE_ACCOUNT_ID}}"
 paths:
+  /:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: "{{STORAGE_CONTAINER_ID}}"
+        service_account_id: "{{SERVICE_ACCOUNT_ID}}"
+        httpMethod: GET
+      responses:
+        "200":
+          description: OK
+  /api:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: "{{STORAGE_CONTAINER_ID}}"
+        service_account_id: "{{SERVICE_ACCOUNT_ID}}"
+        httpMethod: GET
+      responses:
+        "200":
+          description: OK
+  /api/:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: "{{STORAGE_CONTAINER_ID}}"
+        service_account_id: "{{SERVICE_ACCOUNT_ID}}"
+        httpMethod: GET
+      responses:
+        "200":
+          description: OK
+  /api/openapi.yaml:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: "{{STORAGE_CONTAINER_ID}}"
+        service_account_id: "{{SERVICE_ACCOUNT_ID}}"
+        httpMethod: GET
+      responses:
+        "200":
+          description: OK
+  /admin:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: "{{STORAGE_CONTAINER_ID}}"
+        service_account_id: "{{SERVICE_ACCOUNT_ID}}"
+        httpMethod: GET
+      responses:
+        "200":
+          description: OK
+  /admin/:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: "{{STORAGE_CONTAINER_ID}}"
+        service_account_id: "{{SERVICE_ACCOUNT_ID}}"
+        httpMethod: GET
+      responses:
+        "200":
+          description: OK
+  /assets/{file}:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: "{{STORAGE_CONTAINER_ID}}"
+        service_account_id: "{{SERVICE_ACCOUNT_ID}}"
+        httpMethod: GET
+      responses:
+        "200":
+          description: OK
   /healthz:
     get:
       x-yc-apigateway-integration:
@@ -38,6 +108,77 @@ paths:
         "200":
           description: OK
   /v1/admin/keys:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: "{{STORAGE_CONTAINER_ID}}"
+        service_account_id: "{{SERVICE_ACCOUNT_ID}}"
+        httpMethod: GET
+        headers:
+          X-ADMIN-KEY: "$request.header.X-ADMIN-KEY"
+          X-ADMIN-SESSION: "$request.header.X-ADMIN-SESSION"
+      responses:
+        "200":
+          description: OK
+  /v1/admin/keys/{api_key_hash}:
+    delete:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: "{{STORAGE_CONTAINER_ID}}"
+        service_account_id: "{{SERVICE_ACCOUNT_ID}}"
+        httpMethod: DELETE
+        headers:
+          X-ADMIN-KEY: "$request.header.X-ADMIN-KEY"
+          X-ADMIN-SESSION: "$request.header.X-ADMIN-SESSION"
+      responses:
+        "200":
+          description: OK
+  /v1/admin/otp/send:
+    post:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: "{{STORAGE_CONTAINER_ID}}"
+        service_account_id: "{{SERVICE_ACCOUNT_ID}}"
+        httpMethod: POST
+      responses:
+        "200":
+          description: OK
+  /v1/admin/otp/verify:
+    post:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: "{{STORAGE_CONTAINER_ID}}"
+        service_account_id: "{{SERVICE_ACCOUNT_ID}}"
+        httpMethod: POST
+      responses:
+        "200":
+          description: OK
+  /v1/admin/logs:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: "{{STORAGE_CONTAINER_ID}}"
+        service_account_id: "{{SERVICE_ACCOUNT_ID}}"
+        httpMethod: GET
+        headers:
+          X-ADMIN-KEY: "$request.header.X-ADMIN-KEY"
+          X-ADMIN-SESSION: "$request.header.X-ADMIN-SESSION"
+      responses:
+        "200":
+          description: OK
+  /v1/admin/stats:
+    get:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: "{{STORAGE_CONTAINER_ID}}"
+        service_account_id: "{{SERVICE_ACCOUNT_ID}}"
+        httpMethod: GET
+        headers:
+          X-ADMIN-KEY: "$request.header.X-ADMIN-KEY"
+          X-ADMIN-SESSION: "$request.header.X-ADMIN-SESSION"
+      responses:
+        "200":
+          description: OK
     post:
       x-yc-apigateway-integration:
         type: serverless_containers
@@ -46,6 +187,7 @@ paths:
         httpMethod: POST
         headers:
           X-ADMIN-KEY: "$request.header.X-ADMIN-KEY"
+          X-ADMIN-SESSION: "$request.header.X-ADMIN-SESSION"
       responses:
         "200":
           description: OK

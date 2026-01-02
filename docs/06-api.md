@@ -53,6 +53,7 @@ Creates an API key.
 
 Headers:
 - `X-ADMIN-KEY: <admin master key>`
+- `X-ADMIN-SESSION: <otp session token>` (OTP login)
 
 Body:
 ```
@@ -64,5 +65,67 @@ Body:
 }
 ```
 
+## GET /v1/admin/keys
+List API keys.
+
+Headers:
+- `X-ADMIN-KEY` or `X-ADMIN-SESSION`
+
+Query params:
+- `limit` (optional)
+- `include_revoked` (optional)
+
+## DELETE /v1/admin/keys/{api_key_hash}
+Revokes an API key.
+
+Headers:
+- `X-ADMIN-KEY` or `X-ADMIN-SESSION`
+
 ## GET/POST /v1/admin/system-prompt
-Get or update the system prompt. Requires `X-ADMIN-KEY`.
+Get or update the system prompt. Requires `X-ADMIN-KEY` or `X-ADMIN-SESSION`.
+
+## POST /v1/admin/otp/send
+Send OTP to Telegram (admin login).
+
+## POST /v1/admin/otp/verify
+Verify OTP and get a session token.
+
+Body:
+```
+{"code": "123456"}
+```
+
+Response:
+```
+{"session_token": "...", "expires_at": "2026-01-01T00:00:00Z"}
+```
+
+## GET /v1/admin/stats
+Usage stats (requests + active users).
+
+Query params:
+- `window` (duration, e.g. `24h`)
+- `since` (RFC3339)
+
+## GET /v1/admin/logs
+Runtime logs from Yandex Cloud Logging (if configured).
+
+Query params:
+- `limit` (default 100)
+- `window` / `since`
+
+Response (example):
+```
+{
+  "items": [
+    {
+      "timestamp": "2026-01-01T12:00:00Z",
+      "level": "INFO",
+      "message": "inference service listening on :8080",
+      "resource_type": "serverless.container",
+      "resource_id": "b25...",
+      "stream_name": "stdout"
+    }
+  ]
+}
+```

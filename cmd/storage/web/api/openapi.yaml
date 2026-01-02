@@ -1,0 +1,473 @@
+openapi: 3.0.3
+info:
+  title: Dialog Helper Service
+  version: 0.1.0
+servers:
+  - url: https://example.com
+paths:
+  /healthz:
+    get:
+      summary: Health check
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+  /v1/infer:
+    post:
+      summary: Generate reply options from dialog messages
+      parameters:
+        - in: header
+          name: X-API-KEY
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                audio:
+                  type: string
+                  format: binary
+                payload:
+                  type: string
+                  description: JSON-encoded InferPayload
+              required:
+                - payload
+            encoding:
+              payload:
+                contentType: application/json
+      responses:
+        "200":
+          description: Inference result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InferResponse"
+        "400":
+          description: Bad request
+        "401":
+          description: Unauthorized
+        "502":
+          description: STT/LLM error
+  /v1/admin/keys:
+    get:
+      summary: List API keys
+      parameters:
+        - in: header
+          name: X-ADMIN-SESSION
+          required: false
+          schema:
+            type: string
+        - in: header
+          name: X-ADMIN-KEY
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+        - in: query
+          name: include_revoked
+          required: false
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: List of API keys
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIKeyListResponse"
+    post:
+      summary: Create API key
+      parameters:
+        - in: header
+          name: X-ADMIN-KEY
+          required: false
+          schema:
+            type: string
+        - in: header
+          name: X-ADMIN-SESSION
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/APIKeyCreateRequest"
+      responses:
+        "200":
+          description: API key created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIKeyCreateResponse"
+  /v1/admin/system-prompt:
+    get:
+      summary: Get system prompt
+      parameters:
+        - in: header
+          name: X-ADMIN-KEY
+          required: false
+          schema:
+            type: string
+        - in: header
+          name: X-ADMIN-SESSION
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: System prompt
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  prompt:
+                    type: string
+                  version:
+                    type: string
+    post:
+      summary: Update system prompt
+      parameters:
+        - in: header
+          name: X-ADMIN-KEY
+          required: false
+          schema:
+            type: string
+        - in: header
+          name: X-ADMIN-SESSION
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                prompt:
+                  type: string
+                version:
+                  type: string
+              required:
+                - prompt
+      responses:
+        "200":
+          description: OK
+  /v1/admin/keys/{api_key_hash}:
+    delete:
+      summary: Revoke API key
+      parameters:
+        - in: header
+          name: X-ADMIN-SESSION
+          required: false
+          schema:
+            type: string
+        - in: header
+          name: X-ADMIN-KEY
+          required: false
+          schema:
+            type: string
+        - in: path
+          name: api_key_hash
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+  /v1/admin/otp/send:
+    post:
+      summary: Send OTP to Telegram
+      responses:
+        "200":
+          description: OK
+  /v1/admin/otp/verify:
+    post:
+      summary: Verify OTP and create admin session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminOTPVerifyRequest"
+      responses:
+        "200":
+          description: Session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminOTPVerifyResponse"
+  /v1/admin/logs:
+    get:
+      summary: List recent inference logs
+      parameters:
+        - in: header
+          name: X-ADMIN-SESSION
+          required: false
+          schema:
+            type: string
+        - in: header
+          name: X-ADMIN-KEY
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+        - in: query
+          name: window
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: since
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminLogsResponse"
+  /v1/admin/stats:
+    get:
+      summary: Usage statistics
+      parameters:
+        - in: header
+          name: X-ADMIN-SESSION
+          required: false
+          schema:
+            type: string
+        - in: header
+          name: X-ADMIN-KEY
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: window
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: since
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminStatsResponse"
+components:
+  schemas:
+    InferPayload:
+      type: object
+      properties:
+        disabled_person_biography:
+          type: string
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/DialogMessage"
+        language:
+          type: string
+        persona:
+          type: string
+        user_id:
+          type: string
+        user_profile:
+          type: string
+        dialog_id:
+          type: string
+        step_id:
+          type: string
+        time_window_sec:
+          type: integer
+        options:
+          $ref: "#/components/schemas/InferOptions"
+      required:
+        - messages
+    InferOptions:
+      type: object
+      properties:
+        max_candidates:
+          type: integer
+        temperature:
+          type: number
+    InferResponse:
+      type: object
+      properties:
+        transcript:
+          type: string
+        response:
+          type: array
+          items:
+            type: string
+      required:
+        - response
+    DialogMessage:
+      type: object
+      properties:
+        role:
+          type: string
+          enum: [speaker, disabled_person]
+        content:
+          type: string
+        audio:
+          type: boolean
+      required:
+        - role
+    APIKeyCreateRequest:
+      type: object
+      properties:
+        client_id:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        rate_limit_per_minute:
+          type: integer
+        status:
+          type: string
+    APIKeyCreateResponse:
+      type: object
+      properties:
+        api_key:
+          type: string
+        api_key_hash:
+          type: string
+        client_id:
+          type: string
+        status:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        rate_limit_per_minute:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+    APIKeyRecord:
+      type: object
+      properties:
+        APIKeyHash:
+          type: string
+        ClientID:
+          type: string
+        Status:
+          type: string
+        Scopes:
+          type: array
+          items:
+            type: string
+        RateLimitPerMinute:
+          type: integer
+        CreatedAt:
+          type: string
+          format: date-time
+        RevokedAt:
+          type: string
+          format: date-time
+    APIKeyListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/APIKeyRecord"
+        count:
+          type: integer
+    AnswerCandidate:
+      type: object
+      properties:
+        text:
+          type: string
+        rank:
+          type: integer
+        length:
+          type: integer
+        language:
+          type: string
+    AdminLogEntry:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        level:
+          type: string
+        message:
+          type: string
+        resource_type:
+          type: string
+        resource_id:
+          type: string
+        stream_name:
+          type: string
+    AdminOTPVerifyRequest:
+      type: object
+      properties:
+        code:
+          type: string
+      required:
+        - code
+    AdminOTPVerifyResponse:
+      type: object
+      properties:
+        session_token:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+    AdminStatsResponse:
+      type: object
+      properties:
+        since:
+          type: string
+          format: date-time
+        window_seconds:
+          type: integer
+        total_requests:
+          type: integer
+        active_users:
+          type: integer
+    AdminLogsResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminLogEntry"
+        count:
+          type: integer
+        since:
+          type: string
+          format: date-time
+        window_seconds:
+          type: integer

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/linkasu/dialog-helper-service/internal/auth"
 	"github.com/linkasu/dialog-helper-service/internal/models"
 	"github.com/linkasu/dialog-helper-service/internal/ydb"
 
@@ -190,6 +191,143 @@ func (s *YDBStore) PutResult(ctx context.Context, record ResultRecord) error {
 	}, table.WithIdempotent())
 }
 
+func (s *YDBStore) ListResults(ctx context.Context, opts ResultListOptions) ([]ResultRecord, error) {
+	since := opts.Since
+	if since.IsZero() {
+		since = time.Unix(0, 0).UTC()
+	}
+	limit := opts.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+
+	tablePath := s.tablePath("results")
+	query := "DECLARE $since AS Timestamp;\n" +
+		"DECLARE $limit AS Uint64;\n" +
+		"SELECT dialog_hash, user_hash, stt_transcript, answer_candidates_json, meta_json, created_at " +
+		"FROM `" + tablePath + "` WHERE created_at >= $since ORDER BY created_at DESC LIMIT $limit;"
+
+	records := make([]ResultRecord, 0, limit)
+	err := s.db.Table().Do(ctx, func(ctx context.Context, session table.Session) error {
+		params := table.NewQueryParameters(
+			table.ValueParam("$since", types.TimestampValueFromTime(since)),
+			table.ValueParam("$limit", types.Uint64Value(uint64(limit))),
+		)
+		_, res, err := session.Execute(ctx, table.OnlineReadOnlyTxControl(), query, params)
+		if err != nil {
+			return err
+		}
+		defer res.Close()
+		if err := res.NextResultSetErr(ctx); err != nil {
+			return err
+		}
+		for res.NextRow() {
+			var record ResultRecord
+			var candidatesJSON string
+			var metaJSON string
+			if err := res.ScanNamed(
+				named.OptionalWithDefault("dialog_hash", &record.DialogHash),
+				named.OptionalWithDefault("user_hash", &record.UserHash),
+				named.OptionalWithDefault("stt_transcript", &record.Transcript),
+				named.OptionalWithDefault("answer_candidates_json", &candidatesJSON),
+				named.OptionalWithDefault("meta_json", &metaJSON),
+				named.OptionalWithDefault("created_at", &record.CreatedAt),
+			); err != nil {
+				return err
+			}
+			if candidatesJSON != "" {
+				var candidates []models.AnswerCandidate
+				if err := json.Unmarshal([]byte(candidatesJSON), &candidates); err != nil {
+					return fmt.Errorf("decode candidates: %w", err)
+				}
+				record.Candidates = candidates
+			}
+			record.MetaJSON = metaJSON
+			records = append(records, record)
+		}
+		return res.Err()
+	}, table.WithIdempotent())
+
+	if err != nil {
+		return nil, err
+	}
+	return records, nil
+}
+
+func (s *YDBStore) CountResults(ctx context.Context, since time.Time) (int, error) {
+	if since.IsZero() {
+		since = time.Unix(0, 0).UTC()
+	}
+	tablePath := s.tablePath("results")
+	query := "DECLARE $since AS Timestamp;\n" +
+		"SELECT COUNT(*) AS total FROM `" + tablePath + "` WHERE created_at >= $since;"
+
+	var total uint64
+	err := s.db.Table().Do(ctx, func(ctx context.Context, session table.Session) error {
+		params := table.NewQueryParameters(
+			table.ValueParam("$since", types.TimestampValueFromTime(since)),
+		)
+		_, res, err := session.Execute(ctx, table.OnlineReadOnlyTxControl(), query, params)
+		if err != nil {
+			return err
+		}
+		defer res.Close()
+		if err := res.NextResultSetErr(ctx); err != nil {
+			return err
+		}
+		if !res.NextRow() {
+			return res.Err()
+		}
+		if err := res.ScanNamed(
+			named.OptionalWithDefault("total", &total),
+		); err != nil {
+			return err
+		}
+		return res.Err()
+	}, table.WithIdempotent())
+	if err != nil {
+		return 0, err
+	}
+	return int(total), nil
+}
+
+func (s *YDBStore) CountActiveUsers(ctx context.Context, since time.Time) (int, error) {
+	if since.IsZero() {
+		since = time.Unix(0, 0).UTC()
+	}
+	tablePath := s.tablePath("results")
+	query := "DECLARE $since AS Timestamp;\n" +
+		"SELECT COUNT(DISTINCT user_hash) AS total FROM `" + tablePath + "` WHERE created_at >= $since;"
+
+	var total uint64
+	err := s.db.Table().Do(ctx, func(ctx context.Context, session table.Session) error {
+		params := table.NewQueryParameters(
+			table.ValueParam("$since", types.TimestampValueFromTime(since)),
+		)
+		_, res, err := session.Execute(ctx, table.OnlineReadOnlyTxControl(), query, params)
+		if err != nil {
+			return err
+		}
+		defer res.Close()
+		if err := res.NextResultSetErr(ctx); err != nil {
+			return err
+		}
+		if !res.NextRow() {
+			return res.Err()
+		}
+		if err := res.ScanNamed(
+			named.OptionalWithDefault("total", &total),
+		); err != nil {
+			return err
+		}
+		return res.Err()
+	}, table.WithIdempotent())
+	if err != nil {
+		return 0, err
+	}
+	return int(total), nil
+}
+
 func (s *YDBStore) GetAPIKey(ctx context.Context, apiKeyHash string) (APIKeyRecord, bool, error) {
 	var record APIKeyRecord
 	var scopesJSON string
@@ -297,12 +435,85 @@ func (s *YDBStore) RevokeAPIKey(ctx context.Context, apiKeyHash string, revokedA
 	return s.db.Table().Do(ctx, func(ctx context.Context, session table.Session) error {
 		params := table.NewQueryParameters(
 			table.ValueParam("$api_key_hash", types.TextValue(apiKeyHash)),
-			table.ValueParam("$status", types.TextValue("revoked")),
+			table.ValueParam("$status", types.TextValue(auth.StatusRevoked)),
 			table.ValueParam("$revoked_at", types.TimestampValueFromTime(revokedAt.UTC())),
 		)
 		_, _, err := session.Execute(ctx, table.DefaultTxControl(), query, params)
 		return err
 	}, table.WithIdempotent())
+}
+
+func (s *YDBStore) ListAPIKeys(ctx context.Context, opts APIKeyListOptions) ([]APIKeyRecord, error) {
+	limit := opts.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+
+	tablePath := s.tablePath("api_keys")
+	query := "DECLARE $limit AS Uint64;\n"
+	if !opts.IncludeRevoked {
+		query += "DECLARE $revoked AS Utf8;\n"
+	}
+	query += "SELECT api_key_hash, client_id, status, scopes_json, rate_limit_per_minute, created_at, revoked_at " +
+		"FROM `" + tablePath + "` "
+	if !opts.IncludeRevoked {
+		query += "WHERE status != $revoked "
+	}
+	query += "ORDER BY created_at DESC LIMIT $limit;"
+
+	records := make([]APIKeyRecord, 0, limit)
+	err := s.db.Table().Do(ctx, func(ctx context.Context, session table.Session) error {
+		var params *table.QueryParameters
+		if opts.IncludeRevoked {
+			params = table.NewQueryParameters(
+				table.ValueParam("$limit", types.Uint64Value(uint64(limit))),
+			)
+		} else {
+			params = table.NewQueryParameters(
+				table.ValueParam("$limit", types.Uint64Value(uint64(limit))),
+				table.ValueParam("$revoked", types.TextValue(auth.StatusRevoked)),
+			)
+		}
+
+		_, res, err := session.Execute(ctx, table.OnlineReadOnlyTxControl(), query, params)
+		if err != nil {
+			return err
+		}
+		defer res.Close()
+		if err := res.NextResultSetErr(ctx); err != nil {
+			return err
+		}
+		for res.NextRow() {
+			var record APIKeyRecord
+			var scopesJSON string
+			var revokedAt *time.Time
+			if err := res.ScanNamed(
+				named.OptionalWithDefault("api_key_hash", &record.APIKeyHash),
+				named.OptionalWithDefault("client_id", &record.ClientID),
+				named.OptionalWithDefault("status", &record.Status),
+				named.OptionalWithDefault("scopes_json", &scopesJSON),
+				named.OptionalWithDefault("rate_limit_per_minute", &record.RateLimitPerMinute),
+				named.OptionalWithDefault("created_at", &record.CreatedAt),
+				named.Optional("revoked_at", &revokedAt),
+			); err != nil {
+				return err
+			}
+			if scopesJSON != "" {
+				var scopes []string
+				if err := json.Unmarshal([]byte(scopesJSON), &scopes); err != nil {
+					return fmt.Errorf("decode scopes: %w", err)
+				}
+				record.Scopes = scopes
+			}
+			record.RevokedAt = revokedAt
+			records = append(records, record)
+		}
+		return res.Err()
+	}, table.WithIdempotent())
+	if err != nil {
+		return nil, err
+	}
+	return records, nil
 }
 
 func nullableTimestamp(value *time.Time) types.Value {

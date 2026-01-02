@@ -14,10 +14,12 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/linkasu/dialog-helper-service/internal/auth"
 	"github.com/linkasu/dialog-helper-service/internal/config"
 	"github.com/linkasu/dialog-helper-service/internal/hash"
+	"github.com/linkasu/dialog-helper-service/internal/httpx"
 	"github.com/linkasu/dialog-helper-service/internal/models"
 	"github.com/linkasu/dialog-helper-service/internal/normalize"
 	"github.com/linkasu/dialog-helper-service/internal/prompt"
@@ -28,6 +30,12 @@ import (
 
 const (
 	formPayloadField = "payload"
+)
+
+var (
+	errPayloadTooLarge  = errors.New("payload too large")
+	errInvalidMultipart = errors.New("invalid multipart payload")
+	errAudioMissing     = errors.New("audio file is required")
 )
 
 type Handler struct {
@@ -59,18 +67,18 @@ func (h *Handler) Register(mux *http.ServeMux) {
 }
 
 func (h *Handler) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	httpx.WriteJSON(w, http.StatusOK, httpx.StatusResponse{Status: "ok"})
 }
 
 func (h *Handler) handleClientDoc(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 
 	doc, err := loadClientDoc()
 	if err != nil {
-		writeError(w, http.StatusNotFound, "not_found", "client doc not found")
+		httpx.WriteError(w, http.StatusNotFound, "not_found", "client doc not found")
 		return
 	}
 
@@ -81,7 +89,7 @@ func (h *Handler) handleClientDoc(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleInfer(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 
@@ -90,7 +98,7 @@ func (h *Handler) handleInfer(w http.ResponseWriter, r *http.Request) {
 
 	apiKey := strings.TrimSpace(r.Header.Get("X-API-KEY"))
 	if apiKey == "" {
-		writeError(w, http.StatusUnauthorized, "missing_api_key", "X-API-KEY header required")
+		httpx.WriteError(w, http.StatusUnauthorized, "missing_api_key", "X-API-KEY header required")
 		return
 	}
 	apiKeyHash := auth.HashAPIKey(apiKey)
@@ -103,11 +111,11 @@ func (h *Handler) handleInfer(w http.ResponseWriter, r *http.Request) {
 			if errors.Is(err, storageclient.ErrUnauthorized) {
 				status = http.StatusUnauthorized
 			}
-			writeError(w, status, "auth_failed", "api key verification failed")
+			httpx.WriteError(w, status, "auth_failed", "api key verification failed")
 			return
 		}
 		if !ok || info.Status != auth.StatusActive {
-			writeError(w, http.StatusUnauthorized, "invalid_api_key", "invalid api key")
+			httpx.WriteError(w, http.StatusUnauthorized, "invalid_api_key", "invalid api key")
 			return
 		}
 		keyInfo = info
@@ -115,28 +123,39 @@ func (h *Handler) handleInfer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !h.rateLimiter.Allow(apiKeyHash, keyInfo.RateLimitPerMinute) {
-		writeError(w, http.StatusTooManyRequests, "rate_limited", "rate limit exceeded")
+		httpx.WriteError(w, http.StatusTooManyRequests, "rate_limited", "rate limit exceeded")
 		return
 	}
 
 	payload, audioBytes, audioType, err := readMultipartPayload(w, r, h.cfg.MaxAudioBytes)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		status := http.StatusBadRequest
+		code := "invalid_request"
+		if errors.Is(err, errPayloadTooLarge) {
+			status = http.StatusRequestEntityTooLarge
+			code = "payload_too_large"
+		}
+		httpx.WriteError(w, status, code, err.Error())
 		return
 	}
 
-	normalizedMessages, audioIndex, err := normalizeDialogMessages(payload.Messages)
+	if err := validatePayload(h.cfg, payload); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+
+	normalizedMessages, audioIndex, err := normalizeDialogMessages(payload.Messages, h.cfg.MaxMessages, h.cfg.MaxMessageChars)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 	hasAudio := len(audioBytes) > 0
 	if hasAudio && audioIndex == -1 {
-		writeError(w, http.StatusBadRequest, "invalid_request", "audio message is required")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "audio message is required")
 		return
 	}
 	if !hasAudio && audioIndex != -1 {
-		writeError(w, http.StatusBadRequest, "invalid_request", "audio file is required")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "audio file is required")
 		return
 	}
 
@@ -174,7 +193,7 @@ func (h *Handler) handleInfer(w http.ResponseWriter, r *http.Request) {
 			transcript := cached.Transcript
 			resp.Transcript = &transcript
 		}
-		writeJSON(w, http.StatusOK, resp)
+		httpx.WriteJSON(w, http.StatusOK, resp)
 		return
 	}
 
@@ -191,7 +210,7 @@ func (h *Handler) handleInfer(w http.ResponseWriter, r *http.Request) {
 		sttLatency = time.Since(start).Milliseconds()
 		if err != nil {
 			log.Printf("stt error: %v", err)
-			writeError(w, http.StatusBadGateway, "stt_failed", "speech-to-text failed")
+			httpx.WriteError(w, http.StatusBadGateway, "stt_failed", "speech-to-text failed")
 			return
 		}
 		transcript = strings.TrimSpace(sttResult.Transcript)
@@ -201,14 +220,14 @@ func (h *Handler) handleInfer(w http.ResponseWriter, r *http.Request) {
 	promptInfo, err := h.promptLoader.Get(r.Context())
 	if err != nil {
 		log.Printf("prompt load error: %v", err)
-		writeError(w, http.StatusInternalServerError, "prompt_failed", "prompt load failed")
+		httpx.WriteError(w, http.StatusInternalServerError, "prompt_failed", "prompt load failed")
 		return
 	}
 
 	systemPrompt := prompt.NormalizeSystemPrompt(promptInfo.Prompt)
 	userPrompt := prompt.BuildUserMessage(payload.DisabledPersonBiography, dialogMessages, transcript)
 	if userPrompt == "" {
-		writeError(w, http.StatusBadRequest, "invalid_request", "messages are required")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "messages are required")
 		return
 	}
 
@@ -233,7 +252,7 @@ func (h *Handler) handleInfer(w http.ResponseWriter, r *http.Request) {
 	llmLatency = time.Since(start).Milliseconds()
 	if err != nil {
 		log.Printf("llm error: %v", err)
-		writeError(w, http.StatusBadGateway, "llm_failed", "llm request failed")
+		httpx.WriteError(w, http.StatusBadGateway, "llm_failed", "llm request failed")
 		return
 	}
 	candidates := normalize.NormalizeCandidates(llmResult.Texts, maxCandidates, language)
@@ -262,7 +281,7 @@ func (h *Handler) handleInfer(w http.ResponseWriter, r *http.Request) {
 		go h.persistAsync(context.Background(), record)
 	}
 
-	writeJSON(w, http.StatusOK, resp)
+	httpx.WriteJSON(w, http.StatusOK, resp)
 }
 
 func (h *Handler) persistAsync(ctx context.Context, record storage.ResultRecord) {
@@ -290,8 +309,17 @@ func readMultipartPayload(w http.ResponseWriter, r *http.Request, maxBytes int64
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
 	if err := r.ParseMultipartForm(maxBytes); err != nil {
-		return models.InferPayload{}, nil, "", errors.New("invalid multipart payload")
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			return models.InferPayload{}, nil, "", errPayloadTooLarge
+		}
+		return models.InferPayload{}, nil, "", errInvalidMultipart
 	}
+	defer func() {
+		if r.MultipartForm != nil {
+			_ = r.MultipartForm.RemoveAll()
+		}
+	}()
 
 	payloadField := r.FormValue(formPayloadField)
 	if payloadField == "" {
@@ -310,7 +338,10 @@ func readMultipartPayload(w http.ResponseWriter, r *http.Request, maxBytes int64
 
 	file, header, err := findAudioFile(r.MultipartForm)
 	if err != nil {
-		return payload, nil, "", nil
+		if errors.Is(err, errAudioMissing) {
+			return payload, nil, "", nil
+		}
+		return payload, nil, "", err
 	}
 	defer file.Close()
 
@@ -330,7 +361,7 @@ func readMultipartPayload(w http.ResponseWriter, r *http.Request, maxBytes int64
 
 func findAudioFile(form *multipart.Form) (multipart.File, *multipart.FileHeader, error) {
 	if form == nil {
-		return nil, nil, errors.New("multipart form is required")
+		return nil, nil, errInvalidMultipart
 	}
 	for _, field := range []string{"audio", "file"} {
 		if headers := form.File[field]; len(headers) > 0 {
@@ -351,7 +382,7 @@ func findAudioFile(form *multipart.Form) (multipart.File, *multipart.FileHeader,
 		}
 		return file, headers[0], nil
 	}
-	return nil, nil, errors.New("audio file is required")
+	return nil, nil, errAudioMissing
 }
 
 func resolveContainerAudioType(contentType, fileName string) (string, error) {
@@ -406,24 +437,51 @@ func newRequestID() string {
 	return hex.EncodeToString(buf)
 }
 
-func writeJSON(w http.ResponseWriter, status int, payload interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if payload != nil {
-		_ = json.NewEncoder(w).Encode(payload)
+func validatePayload(cfg config.InferenceConfig, payload models.InferPayload) error {
+	if cfg.MaxBiographyChars > 0 && utf8.RuneCountInString(payload.DisabledPersonBiography) > cfg.MaxBiographyChars {
+		return errors.New("disabled_person_biography is too long")
 	}
+	if cfg.MaxPersonaChars > 0 && utf8.RuneCountInString(payload.Persona) > cfg.MaxPersonaChars {
+		return errors.New("persona is too long")
+	}
+	if cfg.MaxUserIDChars > 0 && utf8.RuneCountInString(payload.UserID) > cfg.MaxUserIDChars {
+		return errors.New("user_id is too long")
+	}
+	if cfg.MaxUserProfileChars > 0 && utf8.RuneCountInString(payload.UserProfile) > cfg.MaxUserProfileChars {
+		return errors.New("user_profile is too long")
+	}
+	if cfg.MaxDialogIDChars > 0 && utf8.RuneCountInString(payload.DialogID) > cfg.MaxDialogIDChars {
+		return errors.New("dialog_id is too long")
+	}
+	if cfg.MaxStepIDChars > 0 && utf8.RuneCountInString(payload.StepID) > cfg.MaxStepIDChars {
+		return errors.New("step_id is too long")
+	}
+	if cfg.MaxLanguageChars > 0 && utf8.RuneCountInString(payload.Language) > cfg.MaxLanguageChars {
+		return errors.New("language is too long")
+	}
+	if payload.TimeWindowSec < 0 {
+		return errors.New("time_window_sec must be positive")
+	}
+	if payload.Options != nil {
+		if payload.Options.MaxCandidates < 0 {
+			return errors.New("max_candidates must be positive")
+		}
+		if payload.Options.MaxCandidates > 0 && cfg.MaxCandidates > 0 && payload.Options.MaxCandidates > cfg.MaxCandidates {
+			return errors.New("max_candidates exceeds limit")
+		}
+		if payload.Options.Temperature < 0 || payload.Options.Temperature > cfg.MaxTemperature {
+			return errors.New("temperature is out of range")
+		}
+	}
+	return nil
 }
 
-func writeError(w http.ResponseWriter, status int, code, message string) {
-	writeJSON(w, status, map[string]string{
-		"error":   code,
-		"message": message,
-	})
-}
-
-func normalizeDialogMessages(messages []models.DialogMessage) ([]models.DialogMessage, int, error) {
+func normalizeDialogMessages(messages []models.DialogMessage, maxMessages, maxContentRunes int) ([]models.DialogMessage, int, error) {
 	if len(messages) == 0 {
 		return nil, -1, errors.New("messages are required")
+	}
+	if maxMessages > 0 && len(messages) > maxMessages {
+		return nil, -1, errors.New("too many messages")
 	}
 
 	normalized := make([]models.DialogMessage, 0, len(messages))
@@ -448,6 +506,8 @@ func normalizeDialogMessages(messages []models.DialogMessage) ([]models.DialogMe
 			content = ""
 		} else if content == "" {
 			return nil, -1, errors.New("message content is required")
+		} else if maxContentRunes > 0 && utf8.RuneCountInString(content) > maxContentRunes {
+			return nil, -1, errors.New("message content is too long")
 		}
 		normalized = append(normalized, models.DialogMessage{
 			Role:    role,
