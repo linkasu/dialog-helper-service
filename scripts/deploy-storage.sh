@@ -23,7 +23,7 @@ yc serverless container revision deploy \
   --execution-timeout 60s \
   --concurrency 4 \
   --service-account-id "${SERVICE_ACCOUNT_ID}" \
-  --environment YDB_DSN="${YDB_DSN}",INTERNAL_AUTH_TOKEN="${INTERNAL_AUTH_TOKEN}",PORT=8081
+  --environment YDB_DSN="${YDB_DSN}",INTERNAL_AUTH_TOKEN="${INTERNAL_AUTH_TOKEN}"
 
 echo "Storage deployed. Get URL:"
 

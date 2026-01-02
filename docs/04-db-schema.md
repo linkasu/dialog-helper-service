@@ -1,11 +1,15 @@
 # YDB schema
 
-Run these statements using the YDB CLI (or any YQL client). Adjust database path for your environment.
+Apply schema using the migration tool:
+```
+export YDB_DSN="grpcs://ydb.serverless.yandexcloud.net:2135/?database=/ru-central1/.../dialog-helper-db"
 
-## Tables
+go run ./cmd/migrate
+```
 
-### results
-Stores idempotent cache results.
+The tool runs these statements:
+
+## results
 ```
 CREATE TABLE results (
   dialog_hash Utf8,
@@ -23,8 +27,7 @@ TTL (1440 minutes):
 ALTER TABLE results SET TTL = Interval("PT1440M") ON created_at;
 ```
 
-### api_keys
-Stores hashed API keys and access policy.
+## api_keys
 ```
 CREATE TABLE api_keys (
   api_key_hash Utf8,
@@ -38,14 +41,13 @@ CREATE TABLE api_keys (
 );
 ```
 
-### config
-Stores system prompt and admin key hash.
+## config
 ```
 CREATE TABLE config (
-  key Utf8,
-  value Utf8,
+  config_key Utf8,
+  config_value Utf8,
   updated_at Timestamp,
-  PRIMARY KEY (key)
+  PRIMARY KEY (config_key)
 );
 ```
 

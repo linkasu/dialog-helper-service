@@ -26,7 +26,7 @@ yc serverless container revision deploy \
   --execution-timeout 60s \
   --concurrency 4 \
   --service-account-id "${SERVICE_ACCOUNT_ID}" \
-  --environment STORAGE_URL="${STORAGE_URL}",INTERNAL_AUTH_TOKEN="${INTERNAL_AUTH_TOKEN}",YC_FOLDER_ID="${YC_FOLDER_ID}",YC_GPT_MODEL_URI="${YC_GPT_MODEL_URI}",PORT=8080
+  --environment STORAGE_URL="${STORAGE_URL}",INTERNAL_AUTH_TOKEN="${INTERNAL_AUTH_TOKEN}",YC_FOLDER_ID="${YC_FOLDER_ID}",YC_GPT_MODEL_URI="${YC_GPT_MODEL_URI}"
 
 echo "Inference deployed. Get URL:"
 

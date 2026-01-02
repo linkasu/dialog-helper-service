@@ -5,46 +5,46 @@ All resources are created in folder `b1go18ta52hg00o51kkg`, region `ru-central1`
 ## 1) Service account
 ```
 yc iam service-account create \
-  --name dialog-helper-sa \
+  --name dialog-helper-sa-2025 \
   --folder-id b1go18ta52hg00o51kkg
 ```
 
 Capture the service account ID:
 ```
-yc iam service-account get dialog-helper-sa --format json
+yc iam service-account get dialog-helper-sa-2025 --folder-id b1go18ta52hg00o51kkg --format json
 ```
 
 ### Grant roles
 ```
 yc resource-manager folder add-access-binding \
-  --folder-id b1go18ta52hg00o51kkg \
+  --id b1go18ta52hg00o51kkg \
   --role serverless.containers.editor \
-  --service-account-name dialog-helper-sa
+  --service-account-name dialog-helper-sa-2025
 
 yc resource-manager folder add-access-binding \
-  --folder-id b1go18ta52hg00o51kkg \
-  --role apigateway.admin \
-  --service-account-name dialog-helper-sa
+  --id b1go18ta52hg00o51kkg \
+  --role api-gateway.admin \
+  --service-account-name dialog-helper-sa-2025
 
 yc resource-manager folder add-access-binding \
-  --folder-id b1go18ta52hg00o51kkg \
+  --id b1go18ta52hg00o51kkg \
   --role ydb.editor \
-  --service-account-name dialog-helper-sa
+  --service-account-name dialog-helper-sa-2025
 
 yc resource-manager folder add-access-binding \
-  --folder-id b1go18ta52hg00o51kkg \
+  --id b1go18ta52hg00o51kkg \
   --role lockbox.viewer \
-  --service-account-name dialog-helper-sa
+  --service-account-name dialog-helper-sa-2025
 
 yc resource-manager folder add-access-binding \
-  --folder-id b1go18ta52hg00o51kkg \
-  --role speechkit.stt.user \
-  --service-account-name dialog-helper-sa
+  --id b1go18ta52hg00o51kkg \
+  --role ai.speechkit-stt.user \
+  --service-account-name dialog-helper-sa-2025
 
 yc resource-manager folder add-access-binding \
-  --folder-id b1go18ta52hg00o51kkg \
+  --id b1go18ta52hg00o51kkg \
   --role ai.languageModels.user \
-  --service-account-name dialog-helper-sa
+  --service-account-name dialog-helper-sa-2025
 ```
 
 ## 2) Container registry
@@ -68,8 +68,7 @@ yc container registry configure-docker
 ```
 yc ydb database create dialog-helper-db \
   --folder-id b1go18ta52hg00o51kkg \
-  --serverless \
-  --region ru-central1
+  --serverless
 ```
 
 Get endpoint + database path:
@@ -79,7 +78,7 @@ yc ydb database get dialog-helper-db --format json
 
 Export DSN:
 ```
-export YDB_DSN="grpcs://ydb.serverless.yandexcloud.net:2135/?database=/ru-central1/b1go18ta52hg00o51kkg/dialog-helper-db"
+export YDB_DSN="grpcs://ydb.serverless.yandexcloud.net:2135/?database=/ru-central1/.../dialog-helper-db"
 ```
 
 ## 4) Apply schema

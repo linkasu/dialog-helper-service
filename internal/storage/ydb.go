@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/linkasu/dialog-helper-service/internal/models"
@@ -38,8 +39,10 @@ func (s *YDBStore) GetConfig(ctx context.Context, key string) (ConfigItem, bool,
 	var item ConfigItem
 	var found bool
 
-	query := `DECLARE $key AS Utf8;
-SELECT key, value, updated_at FROM config WHERE key = $key;`
+	tablePath := s.tablePath("config")
+	query := "DECLARE $key AS Utf8;\n" +
+		"SELECT config_key, config_value, updated_at " +
+		"FROM `" + tablePath + "` WHERE config_key = $key;"
 
 	err := s.db.Table().Do(ctx, func(ctx context.Context, session table.Session) error {
 		params := table.NewQueryParameters(table.ValueParam("$key", types.TextValue(key)))
@@ -57,9 +60,9 @@ SELECT key, value, updated_at FROM config WHERE key = $key;`
 		}
 		found = true
 		if err := res.ScanNamed(
-			named.Required("key", &item.Key),
-			named.Required("value", &item.Value),
-			named.Required("updated_at", &item.UpdatedAt),
+			named.OptionalWithDefault("config_key", &item.Key),
+			named.OptionalWithDefault("config_value", &item.Value),
+			named.OptionalWithDefault("updated_at", &item.UpdatedAt),
 		); err != nil {
 			return err
 		}
@@ -74,10 +77,11 @@ SELECT key, value, updated_at FROM config WHERE key = $key;`
 }
 
 func (s *YDBStore) SetConfig(ctx context.Context, key, value string) error {
-	query := `DECLARE $key AS Utf8;
-DECLARE $value AS Utf8;
-DECLARE $updated_at AS Timestamp;
-UPSERT INTO config (key, value, updated_at) VALUES ($key, $value, $updated_at);`
+	tablePath := s.tablePath("config")
+	query := "DECLARE $key AS Utf8;\n" +
+		"DECLARE $value AS Utf8;\n" +
+		"DECLARE $updated_at AS Timestamp;\n" +
+		"UPSERT INTO `" + tablePath + "` (config_key, config_value, updated_at) VALUES ($key, $value, $updated_at);"
 
 	return s.db.Table().Do(ctx, func(ctx context.Context, session table.Session) error {
 		params := table.NewQueryParameters(
@@ -96,9 +100,10 @@ func (s *YDBStore) GetResult(ctx context.Context, dialogHash string) (ResultReco
 	var metaJSON string
 	var found bool
 
-	query := `DECLARE $dialog_hash AS Utf8;
-SELECT dialog_hash, user_hash, stt_transcript, answer_candidates_json, meta_json, created_at
-FROM results WHERE dialog_hash = $dialog_hash;`
+	tablePath := s.tablePath("results")
+	query := "DECLARE $dialog_hash AS Utf8;\n" +
+		"SELECT dialog_hash, user_hash, stt_transcript, answer_candidates_json, meta_json, created_at " +
+		"FROM `" + tablePath + "` WHERE dialog_hash = $dialog_hash;"
 
 	err := s.db.Table().Do(ctx, func(ctx context.Context, session table.Session) error {
 		params := table.NewQueryParameters(table.ValueParam("$dialog_hash", types.TextValue(dialogHash)))
@@ -116,12 +121,12 @@ FROM results WHERE dialog_hash = $dialog_hash;`
 		}
 		found = true
 		if err := res.ScanNamed(
-			named.Required("dialog_hash", &record.DialogHash),
-			named.Required("user_hash", &record.UserHash),
-			named.Required("stt_transcript", &record.Transcript),
-			named.Required("answer_candidates_json", &candidatesJSON),
-			named.Required("meta_json", &metaJSON),
-			named.Required("created_at", &record.CreatedAt),
+			named.OptionalWithDefault("dialog_hash", &record.DialogHash),
+			named.OptionalWithDefault("user_hash", &record.UserHash),
+			named.OptionalWithDefault("stt_transcript", &record.Transcript),
+			named.OptionalWithDefault("answer_candidates_json", &candidatesJSON),
+			named.OptionalWithDefault("meta_json", &metaJSON),
+			named.OptionalWithDefault("created_at", &record.CreatedAt),
 		); err != nil {
 			return err
 		}
@@ -157,14 +162,15 @@ func (s *YDBStore) PutResult(ctx context.Context, record ResultRecord) error {
 		candidatesJSON = string(payload)
 	}
 
-	query := `DECLARE $dialog_hash AS Utf8;
-DECLARE $user_hash AS Utf8;
-DECLARE $stt_transcript AS Utf8;
-DECLARE $answer_candidates_json AS Utf8;
-DECLARE $meta_json AS Utf8;
-DECLARE $created_at AS Timestamp;
-UPSERT INTO results (dialog_hash, user_hash, stt_transcript, answer_candidates_json, meta_json, created_at)
-VALUES ($dialog_hash, $user_hash, $stt_transcript, $answer_candidates_json, $meta_json, $created_at);`
+	tablePath := s.tablePath("results")
+	query := "DECLARE $dialog_hash AS Utf8;\n" +
+		"DECLARE $user_hash AS Utf8;\n" +
+		"DECLARE $stt_transcript AS Utf8;\n" +
+		"DECLARE $answer_candidates_json AS Utf8;\n" +
+		"DECLARE $meta_json AS Utf8;\n" +
+		"DECLARE $created_at AS Timestamp;\n" +
+		"UPSERT INTO `" + tablePath + "` (dialog_hash, user_hash, stt_transcript, answer_candidates_json, meta_json, created_at) " +
+		"VALUES ($dialog_hash, $user_hash, $stt_transcript, $answer_candidates_json, $meta_json, $created_at);"
 
 	return s.db.Table().Do(ctx, func(ctx context.Context, session table.Session) error {
 		createdAt := record.CreatedAt
@@ -190,9 +196,10 @@ func (s *YDBStore) GetAPIKey(ctx context.Context, apiKeyHash string) (APIKeyReco
 	var revokedAt *time.Time
 	var found bool
 
-	query := `DECLARE $api_key_hash AS Utf8;
-SELECT api_key_hash, client_id, status, scopes_json, rate_limit_per_minute, created_at, revoked_at
-FROM api_keys WHERE api_key_hash = $api_key_hash;`
+	tablePath := s.tablePath("api_keys")
+	query := "DECLARE $api_key_hash AS Utf8;\n" +
+		"SELECT api_key_hash, client_id, status, scopes_json, rate_limit_per_minute, created_at, revoked_at " +
+		"FROM `" + tablePath + "` WHERE api_key_hash = $api_key_hash;"
 
 	err := s.db.Table().Do(ctx, func(ctx context.Context, session table.Session) error {
 		params := table.NewQueryParameters(table.ValueParam("$api_key_hash", types.TextValue(apiKeyHash)))
@@ -210,12 +217,12 @@ FROM api_keys WHERE api_key_hash = $api_key_hash;`
 		}
 		found = true
 		if err := res.ScanNamed(
-			named.Required("api_key_hash", &record.APIKeyHash),
-			named.Required("client_id", &record.ClientID),
-			named.Required("status", &record.Status),
-			named.Required("scopes_json", &scopesJSON),
-			named.Required("rate_limit_per_minute", &record.RateLimitPerMinute),
-			named.Required("created_at", &record.CreatedAt),
+			named.OptionalWithDefault("api_key_hash", &record.APIKeyHash),
+			named.OptionalWithDefault("client_id", &record.ClientID),
+			named.OptionalWithDefault("status", &record.Status),
+			named.OptionalWithDefault("scopes_json", &scopesJSON),
+			named.OptionalWithDefault("rate_limit_per_minute", &record.RateLimitPerMinute),
+			named.OptionalWithDefault("created_at", &record.CreatedAt),
 			named.Optional("revoked_at", &revokedAt),
 		); err != nil {
 			return err
@@ -250,15 +257,16 @@ func (s *YDBStore) CreateAPIKey(ctx context.Context, record APIKeyRecord) error 
 		scopesJSON = string(payload)
 	}
 
-	query := `DECLARE $api_key_hash AS Utf8;
-DECLARE $client_id AS Utf8;
-DECLARE $status AS Utf8;
-DECLARE $scopes_json AS Utf8;
-DECLARE $rate_limit_per_minute AS Int32;
-DECLARE $created_at AS Timestamp;
-DECLARE $revoked_at AS Timestamp?;
-UPSERT INTO api_keys (api_key_hash, client_id, status, scopes_json, rate_limit_per_minute, created_at, revoked_at)
-VALUES ($api_key_hash, $client_id, $status, $scopes_json, $rate_limit_per_minute, $created_at, $revoked_at);`
+	tablePath := s.tablePath("api_keys")
+	query := "DECLARE $api_key_hash AS Utf8;\n" +
+		"DECLARE $client_id AS Utf8;\n" +
+		"DECLARE $status AS Utf8;\n" +
+		"DECLARE $scopes_json AS Utf8;\n" +
+		"DECLARE $rate_limit_per_minute AS Int32;\n" +
+		"DECLARE $created_at AS Timestamp;\n" +
+		"DECLARE $revoked_at AS Timestamp?;\n" +
+		"UPSERT INTO `" + tablePath + "` (api_key_hash, client_id, status, scopes_json, rate_limit_per_minute, created_at, revoked_at) " +
+		"VALUES ($api_key_hash, $client_id, $status, $scopes_json, $rate_limit_per_minute, $created_at, $revoked_at);"
 
 	return s.db.Table().Do(ctx, func(ctx context.Context, session table.Session) error {
 		createdAt := record.CreatedAt
@@ -280,10 +288,11 @@ VALUES ($api_key_hash, $client_id, $status, $scopes_json, $rate_limit_per_minute
 }
 
 func (s *YDBStore) RevokeAPIKey(ctx context.Context, apiKeyHash string, revokedAt time.Time) error {
-	query := `DECLARE $api_key_hash AS Utf8;
-DECLARE $status AS Utf8;
-DECLARE $revoked_at AS Timestamp;
-UPSERT INTO api_keys (api_key_hash, status, revoked_at) VALUES ($api_key_hash, $status, $revoked_at);`
+	tablePath := s.tablePath("api_keys")
+	query := "DECLARE $api_key_hash AS Utf8;\n" +
+		"DECLARE $status AS Utf8;\n" +
+		"DECLARE $revoked_at AS Timestamp;\n" +
+		"UPSERT INTO `" + tablePath + "` (api_key_hash, status, revoked_at) VALUES ($api_key_hash, $status, $revoked_at);"
 
 	return s.db.Table().Do(ctx, func(ctx context.Context, session table.Session) error {
 		params := table.NewQueryParameters(
@@ -301,4 +310,14 @@ func nullableTimestamp(value *time.Time) types.Value {
 		return types.NullValue(types.TypeTimestamp)
 	}
 	return types.TimestampValueFromTime(value.UTC())
+}
+func (s *YDBStore) tablePath(name string) string {
+	if s.db == nil {
+		return name
+	}
+	base := strings.TrimRight(s.db.Name(), "/")
+	if base == "" {
+		return name
+	}
+	return base + "/" + name
 }
