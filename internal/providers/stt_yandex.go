@@ -6,6 +6,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -13,7 +15,11 @@ import (
 	"github.com/linkasu/dialog-helper-service/internal/iam"
 )
 
-const yandexSTTEndpoint = "https://stt.api.cloud.yandex.net/stt/v3/recognizeFile"
+const (
+	yandexSTTEndpoint         = "https://stt.api.cloud.yandex.net/stt/v3/recognizeFileAsync"
+	yandexSTTOperationBaseURL = "https://operation.api.cloud.yandex.net/operations/"
+	yandexSTTResultEndpoint   = "https://stt.api.cloud.yandex.net/stt/v3/getRecognition"
+)
 
 type YandexSTT struct {
 	folderID string
@@ -46,6 +52,24 @@ func (y *YandexSTT) Transcribe(ctx context.Context, req STTRequest) (STTResult, 
 		return STTResult{}, err
 	}
 
+	operationID, err := y.startRecognition(ctx, token, req)
+	if err != nil {
+		return STTResult{}, err
+	}
+
+	if err := y.waitOperation(ctx, token, operationID); err != nil {
+		return STTResult{}, err
+	}
+
+	transcript, err := y.fetchRecognition(ctx, token, operationID)
+	if err != nil {
+		return STTResult{}, err
+	}
+
+	return STTResult{Transcript: transcript}, nil
+}
+
+func (y *YandexSTT) startRecognition(ctx context.Context, token string, req STTRequest) (string, error) {
 	body := map[string]interface{}{
 		"content": base64.StdEncoding.EncodeToString(req.Audio),
 		"recognitionModel": map[string]interface{}{
@@ -67,12 +91,12 @@ func (y *YandexSTT) Transcribe(ctx context.Context, req STTRequest) (STTResult, 
 
 	payload, err := json.Marshal(body)
 	if err != nil {
-		return STTResult{}, err
+		return "", err
 	}
 
 	reqHTTP, err := http.NewRequestWithContext(ctx, http.MethodPost, yandexSTTEndpoint, bytes.NewReader(payload))
 	if err != nil {
-		return STTResult{}, err
+		return "", err
 	}
 	reqHTTP.Header.Set("Authorization", "Bearer "+token)
 	reqHTTP.Header.Set("x-folder-id", y.folderID)
@@ -80,21 +104,122 @@ func (y *YandexSTT) Transcribe(ctx context.Context, req STTRequest) (STTResult, 
 
 	resp, err := y.client.Do(reqHTTP)
 	if err != nil {
-		return STTResult{}, err
+		return "", err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return STTResult{}, errors.New("stt request failed")
+		return "", readSTTError(resp, "stt request failed")
 	}
 
-	var decoded interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
-		return STTResult{}, err
+	var payloadResp struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payloadResp); err != nil {
+		return "", err
+	}
+	if payloadResp.ID == "" {
+		return "", errors.New("stt response missing operation id")
+	}
+	return payloadResp.ID, nil
+}
+
+func (y *YandexSTT) waitOperation(ctx context.Context, token, operationID string) error {
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if time.Now().After(deadline) {
+			return errors.New("stt operation timeout")
+		}
+
+		reqHTTP, err := http.NewRequestWithContext(ctx, http.MethodGet, yandexSTTOperationBaseURL+operationID, nil)
+		if err != nil {
+			return err
+		}
+		reqHTTP.Header.Set("Authorization", "Bearer "+token)
+
+		resp, err := y.client.Do(reqHTTP)
+		if err != nil {
+			return err
+		}
+
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			err := readSTTError(resp, "stt operation failed")
+			resp.Body.Close()
+			return err
+		}
+
+		var payload struct {
+			Done  bool        `json:"done"`
+			Error interface{} `json:"error"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+			resp.Body.Close()
+			return err
+		}
+		resp.Body.Close()
+
+		if payload.Done {
+			if payload.Error != nil {
+				return fmt.Errorf("stt operation error: %v", payload.Error)
+			}
+			return nil
+		}
+
+		timer := time.NewTimer(200 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func (y *YandexSTT) fetchRecognition(ctx context.Context, token, operationID string) (string, error) {
+	reqHTTP, err := http.NewRequestWithContext(ctx, http.MethodGet, yandexSTTResultEndpoint+"?operation_id="+operationID, nil)
+	if err != nil {
+		return "", err
+	}
+	reqHTTP.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := y.client.Do(reqHTTP)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", readSTTError(resp, "stt result failed")
 	}
 
-	transcript := extractTranscript(decoded)
-	return STTResult{Transcript: transcript}, nil
+	return decodeRecognitionTranscript(resp.Body)
+}
+
+func decodeRecognitionTranscript(r io.Reader) (string, error) {
+	decoder := json.NewDecoder(r)
+	parts := make([]string, 0)
+	for {
+		var payload interface{}
+		if err := decoder.Decode(&payload); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return "", err
+		}
+		text := extractTranscript(payload)
+		if text != "" {
+			parts = append(parts, text)
+		}
+	}
+	return joinParts(parts), nil
+}
+
+func readSTTError(resp *http.Response, fallback string) error {
+	body, _ := io.ReadAll(resp.Body)
+	if len(body) == 0 {
+		return fmt.Errorf("%s: status %d", fallback, resp.StatusCode)
+	}
+	return fmt.Errorf("%s: status %d: %s", fallback, resp.StatusCode, strings.TrimSpace(string(body)))
 }
 
 func extractTranscript(data interface{}) string {
