@@ -1,0 +1,24 @@
+# Go
+/bin/
+/pkg/
+*.exe
+*.test
+*.out
+
+# Build artifacts
+/dist/
+/target/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Env
+.env
+.env.*
+
+# Misc
+*.log
