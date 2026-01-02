@@ -6,21 +6,25 @@ OpenAPI spec: `api/openapi.yaml`.
 Returns the public client integration guide (Markdown).
 
 ## POST /v1/infer
-Multipart request with audio and JSON payload.
+Multipart request with dialog messages and optional audio.
 
 ### Headers
 - `X-API-KEY: <client key>`
 
 ### Multipart fields
-- `audio`: audio file (MP3/WAV/OGG)
+- `audio`: audio file (MP3/WAV/OGG) for the message marked with `"audio": true`
 - `payload`: JSON-encoded `InferPayload`
 
 ### Payload example
 ```
 {
-  "prompt": "We are at a cafe. Suggest short replies.",
+  "disabled_person_biography": "Adult user, polite tone",
+  "messages": [
+    {"role": "speaker", "content": "привет"},
+    {"role": "disabled_person", "content": "привет, как я могу помочь?"},
+    {"role": "speaker", "audio": true}
+  ],
   "language": "ru-RU",
-  "persona": "Adult user, polite tone",
   "user_id": "user-123",
   "dialog_id": "dlg-1",
   "step_id": "1",
@@ -34,25 +38,15 @@ Multipart request with audio and JSON payload.
 ### Response example
 ```
 {
-  "request_id": "...",
-  "dialog_hash": "...",
-  "user_hash": "...",
-  "transcript": {
-    "text": "Hello, how are you?",
-    "language": "ru-RU"
-  },
-  "candidates": [
-    {"text": "I am fine, thanks.", "rank": 1, "length": 21, "language": "ru-RU"},
-    {"text": "Not great today.", "rank": 2, "length": 15, "language": "ru-RU"}
-  ],
-  "meta": {
-    "cache_hit": false,
-    "stt_latency_ms": 120,
-    "llm_latency_ms": 240,
-    "system_prompt_version": "20250101010101"
-  }
+  "transcript": "привет",
+  "response": [
+    "Я хорошо, спасибо!",
+    "Не очень, но держусь."
+  ]
 }
 ```
+
+`transcript` is included only when audio was provided.
 
 ## POST /v1/admin/keys
 Creates an API key.

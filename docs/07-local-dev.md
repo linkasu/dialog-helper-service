@@ -42,5 +42,5 @@ API_KEY=<api_key_from_admin>
 curl -s -X POST http://localhost:8080/v1/infer \
   -H "X-API-KEY: ${API_KEY}" \
   -F "audio=@testdata/sample.mp3" \
-  -F "payload={\"prompt\":\"Suggest short replies\",\"language\":\"ru-RU\"}" 
+  -F "payload={\"disabled_person_biography\":\"Adult user, polite tone\",\"messages\":[{\"role\":\"speaker\",\"audio\":true}],\"language\":\"ru-RU\"}" 
 ```

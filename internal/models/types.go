@@ -3,16 +3,16 @@ package models
 import "time"
 
 type InferPayload struct {
-	Prompt        string        `json:"prompt"`
-	Language      string        `json:"language,omitempty"`
-	Persona       string        `json:"persona,omitempty"`
-	UserID        string        `json:"user_id,omitempty"`
-	UserProfile   string        `json:"user_profile,omitempty"`
-	DialogID      string        `json:"dialog_id,omitempty"`
-	StepID        string        `json:"step_id,omitempty"`
-	TimeWindowSec int           `json:"time_window_sec,omitempty"`
-	Transcript    string        `json:"transcript,omitempty"`
-	Options       *InferOptions `json:"options,omitempty"`
+	DisabledPersonBiography string          `json:"disabled_person_biography,omitempty"`
+	Messages                []DialogMessage `json:"messages"`
+	Language                string          `json:"language,omitempty"`
+	Persona                 string          `json:"persona,omitempty"`
+	UserID                  string          `json:"user_id,omitempty"`
+	UserProfile             string          `json:"user_profile,omitempty"`
+	DialogID                string          `json:"dialog_id,omitempty"`
+	StepID                  string          `json:"step_id,omitempty"`
+	TimeWindowSec           int             `json:"time_window_sec,omitempty"`
+	Options                 *InferOptions   `json:"options,omitempty"`
 }
 
 type InferOptions struct {
@@ -21,18 +21,8 @@ type InferOptions struct {
 }
 
 type InferResponse struct {
-	RequestID  string            `json:"request_id"`
-	DialogHash string            `json:"dialog_hash"`
-	UserHash   string            `json:"user_hash"`
-	Transcript TranscriptResult  `json:"transcript"`
-	Candidates []AnswerCandidate `json:"candidates"`
-	Errors     []APIError        `json:"errors,omitempty"`
-	Meta       Meta              `json:"meta"`
-}
-
-type TranscriptResult struct {
-	Text     string `json:"text"`
-	Language string `json:"language,omitempty"`
+	Transcript *string  `json:"transcript,omitempty"`
+	Response   []string `json:"response"`
 }
 
 type AnswerCandidate struct {
@@ -43,16 +33,10 @@ type AnswerCandidate struct {
 	Confidence *float64 `json:"confidence,omitempty"`
 }
 
-type Meta struct {
-	CacheHit            bool   `json:"cache_hit"`
-	STTLatencyMs        int64  `json:"stt_latency_ms,omitempty"`
-	LLMLatencyMs        int64  `json:"llm_latency_ms,omitempty"`
-	SystemPromptVersion string `json:"system_prompt_version,omitempty"`
-}
-
-type APIError struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
+type DialogMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content,omitempty"`
+	Audio   bool   `json:"audio,omitempty"`
 }
 
 type APIKeyInfo struct {

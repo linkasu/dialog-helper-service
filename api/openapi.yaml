@@ -20,7 +20,7 @@ paths:
                     type: string
   /v1/infer:
     post:
-      summary: Generate transcript and answer candidates
+      summary: Generate reply options from dialog messages
       parameters:
         - in: header
           name: X-API-KEY
@@ -130,8 +130,12 @@ components:
     InferPayload:
       type: object
       properties:
-        prompt:
+        disabled_person_biography:
           type: string
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/DialogMessage"
         language:
           type: string
         persona:
@@ -146,12 +150,10 @@ components:
           type: string
         time_window_sec:
           type: integer
-        transcript:
-          type: string
         options:
           $ref: "#/components/schemas/InferOptions"
       required:
-        - prompt
+        - messages
     InferOptions:
       type: object
       properties:
@@ -162,62 +164,26 @@ components:
     InferResponse:
       type: object
       properties:
-        request_id:
-          type: string
-        dialog_hash:
-          type: string
-        user_hash:
-          type: string
         transcript:
-          $ref: "#/components/schemas/TranscriptResult"
-        candidates:
+          type: string
+        response:
           type: array
           items:
-            $ref: "#/components/schemas/AnswerCandidate"
-        errors:
-          type: array
-          items:
-            $ref: "#/components/schemas/APIError"
-        meta:
-          $ref: "#/components/schemas/Meta"
-    TranscriptResult:
+            type: string
+      required:
+        - response
+    DialogMessage:
       type: object
       properties:
-        text:
+        role:
           type: string
-        language:
+          enum: [speaker, disabled_person]
+        content:
           type: string
-    AnswerCandidate:
-      type: object
-      properties:
-        text:
-          type: string
-        rank:
-          type: integer
-        length:
-          type: integer
-        language:
-          type: string
-        confidence:
-          type: number
-    Meta:
-      type: object
-      properties:
-        cache_hit:
+        audio:
           type: boolean
-        stt_latency_ms:
-          type: integer
-        llm_latency_ms:
-          type: integer
-        system_prompt_version:
-          type: string
-    APIError:
-      type: object
-      properties:
-        code:
-          type: string
-        message:
-          type: string
+      required:
+        - role
     APIKeyCreateRequest:
       type: object
       properties:

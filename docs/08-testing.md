@@ -14,5 +14,5 @@ After deployment:
 curl -s -X POST https://<gateway-or-inference-url>/v1/infer \
   -H "X-API-KEY: <client-key>" \
   -F "audio=@testdata/sample.mp3" \
-  -F "payload={\"prompt\":\"Suggest short replies\",\"language\":\"ru-RU\"}" 
+  -F "payload={\"disabled_person_biography\":\"Adult user, polite tone\",\"messages\":[{\"role\":\"speaker\",\"audio\":true}],\"language\":\"ru-RU\"}" 
 ```

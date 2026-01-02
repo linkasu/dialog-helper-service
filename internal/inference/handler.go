@@ -125,8 +125,18 @@ func (h *Handler) handleInfer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if strings.TrimSpace(payload.Prompt) == "" {
-		writeError(w, http.StatusBadRequest, "missing_prompt", "prompt is required")
+	normalizedMessages, audioIndex, err := normalizeDialogMessages(payload.Messages)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	hasAudio := len(audioBytes) > 0
+	if hasAudio && audioIndex == -1 {
+		writeError(w, http.StatusBadRequest, "invalid_request", "audio message is required")
+		return
+	}
+	if !hasAudio && audioIndex != -1 {
+		writeError(w, http.StatusBadRequest, "invalid_request", "audio file is required")
 		return
 	}
 
@@ -136,14 +146,11 @@ func (h *Handler) handleInfer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userHash := hash.HashUser(payload.UserID, payload.UserProfile)
-	promptHash := hash.HashPrompt(payload.Prompt)
-	audioHash := ""
+	promptInput := prompt.BuildUserMessage(payload.DisabledPersonBiography, normalizedMessages, "")
+	promptHash := hash.HashPrompt(promptInput)
+	audioHash := hash.SHA256HexString("no-audio")
 	if len(audioBytes) > 0 {
 		audioHash = hash.SHA256HexBytes(audioBytes)
-	} else if payload.Transcript != "" {
-		audioHash = hash.SHA256HexString(payload.Transcript)
-	} else {
-		audioHash = hash.SHA256HexString("no-audio")
 	}
 
 	dialogHash := hash.BuildDialogHash(hash.DialogHashInput{
@@ -160,24 +167,20 @@ func (h *Handler) handleInfer(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if cached, ok, err := h.storage.GetResult(r.Context(), dialogHash); err == nil && ok {
-		promptInfo, _ := h.promptLoader.Get(r.Context())
 		resp := models.InferResponse{
-			RequestID:  requestID,
-			DialogHash: cached.DialogHash,
-			UserHash:   cached.UserHash,
-			Transcript: models.TranscriptResult{Text: cached.Transcript, Language: language},
-			Candidates: cached.Candidates,
-			Meta: models.Meta{
-				CacheHit:            true,
-				SystemPromptVersion: promptInfo.Version,
-			},
+			Response: candidatesToTexts(cached.Candidates),
+		}
+		if hasAudio {
+			transcript := cached.Transcript
+			resp.Transcript = &transcript
 		}
 		writeJSON(w, http.StatusOK, resp)
 		return
 	}
 
-	transcript := strings.TrimSpace(payload.Transcript)
+	transcript := ""
 	sttLatency := int64(0)
+	dialogMessages := normalizedMessages
 	if len(audioBytes) > 0 {
 		start := time.Now()
 		sttResult, err := h.stt.Transcribe(r.Context(), providers.STTRequest{
@@ -192,6 +195,7 @@ func (h *Handler) handleInfer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		transcript = strings.TrimSpace(sttResult.Transcript)
+		dialogMessages = applyTranscriptToMessages(normalizedMessages, audioIndex, transcript)
 	}
 
 	promptInfo, err := h.promptLoader.Get(r.Context())
@@ -202,7 +206,11 @@ func (h *Handler) handleInfer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	systemPrompt := prompt.NormalizeSystemPrompt(promptInfo.Prompt)
-	userPrompt := prompt.BuildUserMessage(payload.Prompt, transcript)
+	userPrompt := prompt.BuildUserMessage(payload.DisabledPersonBiography, dialogMessages, transcript)
+	if userPrompt == "" {
+		writeError(w, http.StatusBadRequest, "invalid_request", "messages are required")
+		return
+	}
 
 	maxCandidates := h.cfg.DefaultMaxCandidates
 	if payload.Options != nil && payload.Options.MaxCandidates > 0 {
@@ -214,40 +222,27 @@ func (h *Handler) handleInfer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	llmLatency := int64(0)
-	var candidates []models.AnswerCandidate
-	var apiErrors []models.APIError
-
-	if userPrompt != "" {
-		start := time.Now()
-		llmResult, err := h.llm.Complete(r.Context(), providers.LLMRequest{
-			SystemPrompt: systemPrompt,
-			UserPrompt:   userPrompt,
-			Temperature:  temperature,
-			MaxTokens:    h.cfg.DefaultMaxTokens,
-			ModelURI:     h.cfg.ModelURI,
-		})
-		llmLatency = time.Since(start).Milliseconds()
-		if err != nil {
-			log.Printf("llm error: %v", err)
-			apiErrors = append(apiErrors, models.APIError{Code: "llm_failed", Message: "llm request failed"})
-		} else {
-			candidates = normalize.NormalizeCandidates(llmResult.Texts, maxCandidates, language)
-		}
+	start := time.Now()
+	llmResult, err := h.llm.Complete(r.Context(), providers.LLMRequest{
+		SystemPrompt: systemPrompt,
+		UserPrompt:   userPrompt,
+		Temperature:  temperature,
+		MaxTokens:    h.cfg.DefaultMaxTokens,
+		ModelURI:     h.cfg.ModelURI,
+	})
+	llmLatency = time.Since(start).Milliseconds()
+	if err != nil {
+		log.Printf("llm error: %v", err)
+		writeError(w, http.StatusBadGateway, "llm_failed", "llm request failed")
+		return
 	}
+	candidates := normalize.NormalizeCandidates(llmResult.Texts, maxCandidates, language)
 
 	resp := models.InferResponse{
-		RequestID:  requestID,
-		DialogHash: dialogHash,
-		UserHash:   userHash,
-		Transcript: models.TranscriptResult{Text: transcript, Language: language},
-		Candidates: candidates,
-		Errors:     apiErrors,
-		Meta: models.Meta{
-			CacheHit:            false,
-			STTLatencyMs:        sttLatency,
-			LLMLatencyMs:        llmLatency,
-			SystemPromptVersion: promptInfo.Version,
-		},
+		Response: candidatesToTexts(candidates),
+	}
+	if hasAudio {
+		resp.Transcript = &transcript
 	}
 
 	if h.cfg.PersistResults {
@@ -315,9 +310,6 @@ func readMultipartPayload(w http.ResponseWriter, r *http.Request, maxBytes int64
 
 	file, header, err := findAudioFile(r.MultipartForm)
 	if err != nil {
-		if payload.Transcript == "" {
-			return models.InferPayload{}, nil, "", err
-		}
 		return payload, nil, "", nil
 	}
 	defer file.Close()
@@ -427,4 +419,67 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 		"error":   code,
 		"message": message,
 	})
+}
+
+func normalizeDialogMessages(messages []models.DialogMessage) ([]models.DialogMessage, int, error) {
+	if len(messages) == 0 {
+		return nil, -1, errors.New("messages are required")
+	}
+
+	normalized := make([]models.DialogMessage, 0, len(messages))
+	audioIndex := -1
+	for _, msg := range messages {
+		role := strings.ToLower(strings.TrimSpace(msg.Role))
+		if role == "" {
+			return nil, -1, errors.New("message role is required")
+		}
+		if role != "speaker" && role != "disabled_person" {
+			return nil, -1, errors.New("unsupported message role")
+		}
+		content := strings.TrimSpace(msg.Content)
+		if msg.Audio {
+			if role != "speaker" {
+				return nil, -1, errors.New("audio is only supported for speaker role")
+			}
+			if audioIndex != -1 {
+				return nil, -1, errors.New("only one audio message is supported")
+			}
+			audioIndex = len(normalized)
+			content = ""
+		} else if content == "" {
+			return nil, -1, errors.New("message content is required")
+		}
+		normalized = append(normalized, models.DialogMessage{
+			Role:    role,
+			Content: content,
+			Audio:   msg.Audio,
+		})
+	}
+
+	return normalized, audioIndex, nil
+}
+
+func applyTranscriptToMessages(messages []models.DialogMessage, index int, transcript string) []models.DialogMessage {
+	if index < 0 || index >= len(messages) {
+		return messages
+	}
+	updated := make([]models.DialogMessage, len(messages))
+	copy(updated, messages)
+	updated[index].Content = strings.TrimSpace(transcript)
+	updated[index].Audio = false
+	return updated
+}
+
+func candidatesToTexts(candidates []models.AnswerCandidate) []string {
+	if len(candidates) == 0 {
+		return nil
+	}
+	texts := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		if strings.TrimSpace(candidate.Text) == "" {
+			continue
+		}
+		texts = append(texts, candidate.Text)
+	}
+	return texts
 }

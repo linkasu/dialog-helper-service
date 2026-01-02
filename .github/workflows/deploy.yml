@@ -1,0 +1,115 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      FOLDER_ID: ${{ vars.FOLDER_ID }}
+      CLOUD_ID: ${{ vars.CLOUD_ID }}
+      SERVICE_ACCOUNT_ID: ${{ vars.SERVICE_ACCOUNT_ID }}
+      REGISTRY_ID: ${{ vars.REGISTRY_ID }}
+      YC_FOLDER_ID: ${{ vars.YC_FOLDER_ID }}
+      YDB_DSN: ${{ secrets.YDB_DSN }}
+      INTERNAL_AUTH_TOKEN: ${{ secrets.INTERNAL_AUTH_TOKEN }}
+      ADMIN_MASTER_KEY: ${{ secrets.ADMIN_MASTER_KEY }}
+      YC_SERVICE_ACCOUNT_KEY: ${{ secrets.YC_SERVICE_ACCOUNT_KEY }}
+      GATEWAY_NAME: ${{ vars.GATEWAY_NAME }}
+      IMAGE_TAG: latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install yc CLI
+        uses: nightstory/setup-yc@v1
+
+      - name: Configure yc CLI
+        run: |
+          if [ -z "${YC_SERVICE_ACCOUNT_KEY}" ]; then
+            echo "Missing YC_SERVICE_ACCOUNT_KEY secret." >&2
+            exit 1
+          fi
+          printf '%s' "${YC_SERVICE_ACCOUNT_KEY}" > /tmp/sa-key.json
+          yc config set service-account-key /tmp/sa-key.json
+          if [ -n "${CLOUD_ID}" ]; then
+            yc config set cloud-id "${CLOUD_ID}"
+          fi
+          if [ -n "${FOLDER_ID}" ]; then
+            yc config set folder-id "${FOLDER_ID}"
+          fi
+
+      - name: Set up Docker buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Configure Docker for Yandex Container Registry
+        run: yc container registry configure-docker
+
+      - name: Build and push images
+        run: |
+          if [ -z "${REGISTRY_ID}" ]; then
+            echo "Missing REGISTRY_ID." >&2
+            exit 1
+          fi
+          REGISTRY_ID="${REGISTRY_ID}" IMAGE_TAG="${IMAGE_TAG}" ./scripts/build-images.sh
+
+      - name: Deploy storage
+        run: |
+          if [ -z "${FOLDER_ID}" ] || [ -z "${SERVICE_ACCOUNT_ID}" ] || [ -z "${REGISTRY_ID}" ] || [ -z "${YDB_DSN}" ] || [ -z "${INTERNAL_AUTH_TOKEN}" ]; then
+            echo "Missing required deployment environment variables." >&2
+            exit 1
+          fi
+          FOLDER_ID="${FOLDER_ID}" SERVICE_ACCOUNT_ID="${SERVICE_ACCOUNT_ID}" REGISTRY_ID="${REGISTRY_ID}" IMAGE_TAG="${IMAGE_TAG}" YDB_DSN="${YDB_DSN}" INTERNAL_AUTH_TOKEN="${INTERNAL_AUTH_TOKEN}" ./scripts/deploy-storage.sh
+          STORAGE_URL=$(yc serverless container get --name dialog-helper-storage --folder-id "${FOLDER_ID}" --format json | jq -r '.url')
+          if [ -z "${STORAGE_URL}" ] || [ "${STORAGE_URL}" = "null" ]; then
+            echo "Failed to resolve STORAGE_URL." >&2
+            exit 1
+          fi
+          echo "STORAGE_URL=${STORAGE_URL}" >> "${GITHUB_ENV}"
+
+      - name: Deploy inference
+        run: |
+          if [ -z "${YC_FOLDER_ID}" ]; then
+            echo "Missing YC_FOLDER_ID." >&2
+            exit 1
+          fi
+          FOLDER_ID="${FOLDER_ID}" SERVICE_ACCOUNT_ID="${SERVICE_ACCOUNT_ID}" REGISTRY_ID="${REGISTRY_ID}" IMAGE_TAG="${IMAGE_TAG}" STORAGE_URL="${STORAGE_URL}" INTERNAL_AUTH_TOKEN="${INTERNAL_AUTH_TOKEN}" YC_FOLDER_ID="${YC_FOLDER_ID}" ./scripts/deploy-inference.sh
+
+      - name: End-to-end test (gateway)
+        run: |
+          if [ -z "${ADMIN_MASTER_KEY}" ]; then
+            echo "Missing ADMIN_MASTER_KEY secret." >&2
+            exit 1
+          fi
+          GATEWAY_NAME="${GATEWAY_NAME:-dialog-helper-gateway}"
+          GATEWAY_DOMAIN=$(yc serverless api-gateway get --name "${GATEWAY_NAME}" --folder-id "${FOLDER_ID}" --format json | jq -r '.domain')
+          if [ -z "${GATEWAY_DOMAIN}" ] || [ "${GATEWAY_DOMAIN}" = "null" ]; then
+            echo "Failed to resolve API Gateway domain." >&2
+            exit 1
+          fi
+          GATEWAY_URL="https://${GATEWAY_DOMAIN}"
+          API_KEY=$(curl -sSf -X POST "${GATEWAY_URL}/v1/admin/keys" \
+            -H "X-ADMIN-KEY: ${ADMIN_MASTER_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{"client_id":"ci","scopes":["infer"],"rate_limit_per_minute":60}' | jq -r '.api_key')
+          if [ -z "${API_KEY}" ] || [ "${API_KEY}" = "null" ]; then
+            echo "Failed to create API key." >&2
+            exit 1
+          fi
+          echo "::add-mask::${API_KEY}"
+          RESPONSE=$(curl -sSf -X POST "${GATEWAY_URL}/v1/infer" \
+            -H "X-API-KEY: ${API_KEY}" \
+            -F "audio=@test.mp3" \
+            -F 'payload={"disabled_person_biography":"Вежливый взрослый пользователь.","messages":[{"role":"speaker","audio":true}],"language":"ru-RU"}')
+          echo "${RESPONSE}"
+          echo "${RESPONSE}" | jq -e '.response | type=="array" and length>0' >/dev/null
+          echo "${RESPONSE}" | jq -e '.transcript | type=="string" and length>0' >/dev/null

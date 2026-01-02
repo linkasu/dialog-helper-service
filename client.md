@@ -32,14 +32,19 @@ Content-Type: multipart/form-data
 
 ### Multipart fields
 - `payload` (required): JSON string with request parameters.
-- `audio` (optional): audio file with the interlocutor's speech.
+- `audio` (optional): audio file for the message marked with `"audio": true`.
 
-If `audio` is omitted, provide `transcript` in the payload.
+If `audio` is omitted, include the interlocutor's text in the `messages` array.
 
 ### Payload schema (JSON)
 ```json
 {
-  "prompt": "string (required)",
+  "disabled_person_biography": "string",
+  "messages": [
+    {"role": "speaker", "content": "string"},
+    {"role": "disabled_person", "content": "string"},
+    {"role": "speaker", "audio": true}
+  ],
   "language": "ru-RU",
   "persona": "string",
   "user_id": "string",
@@ -47,7 +52,6 @@ If `audio` is omitted, provide `transcript` in the payload.
   "dialog_id": "string",
   "step_id": "string",
   "time_window_sec": 600,
-  "transcript": "string",
   "options": {
     "max_candidates": 5,
     "temperature": 0.3
@@ -56,7 +60,9 @@ If `audio` is omitted, provide `transcript` in the payload.
 ```
 
 Notes:
-- `prompt` is the client-provided context. It is always merged with the system prompt.
+- `disabled_person_biography` provides personal context to shape replies.
+- `messages` is the dialog history; `role` can be `speaker` or `disabled_person`.
+- Use `"audio": true` on a single `speaker` message when providing an audio file.
 - `language` defaults to `ru-RU` if omitted.
 - `time_window_sec` affects dialog hash stability for caching/idempotency.
 - `options` allow per-request tuning of candidates count and temperature.
@@ -69,11 +75,11 @@ Supported input formats:
 
 Default max size: 8 MB (configurable on the server).
 
-### Example (audio + prompt)
+### Example (audio + dialog)
 ```bash
 curl -sS \
   -H "X-API-KEY: <client-api-key>" \
-  -F 'payload={"prompt":"Подтверди встречу на следующей неделе.","user_id":"user-1","dialog_id":"dialog-1","step_id":"1","language":"ru-RU"}' \
+  -F 'payload={"disabled_person_biography":"Вежливый взрослый пользователь.","messages":[{"role":"speaker","content":"Здравствуйте!"},{"role":"disabled_person","content":"Здравствуйте, чем помочь?"},{"role":"speaker","audio":true}],"user_id":"user-1","dialog_id":"dialog-1","step_id":"1","language":"ru-RU"}' \
   -F "audio=@/path/to/audio.mp3;type=audio/mpeg" \
   https://<gateway-id>.apigw.yandexcloud.net/v1/infer
 ```
@@ -82,52 +88,33 @@ curl -sS \
 ```bash
 curl -sS \
   -H "X-API-KEY: <client-api-key>" \
-  -F 'payload={"prompt":"Сформулируй ответы.","transcript":"Здравствуйте, как дела?","user_id":"user-1","dialog_id":"dialog-1","step_id":"2","language":"ru-RU"}' \
+  -F 'payload={"disabled_person_biography":"Вежливый взрослый пользователь.","messages":[{"role":"speaker","content":"Здравствуйте, как дела?"}],"user_id":"user-1","dialog_id":"dialog-1","step_id":"2","language":"ru-RU"}' \
   https://<gateway-id>.apigw.yandexcloud.net/v1/infer
 ```
 
 ### Response
 ```json
 {
-  "request_id": "string",
-  "dialog_hash": "string",
-  "user_hash": "string",
-  "transcript": {
-    "text": "string",
-    "language": "ru-RU"
-  },
-  "candidates": [
-    {
-      "text": "string",
-      "rank": 1,
-      "length": 20,
-      "language": "ru-RU"
-    }
-  ],
-  "errors": [
-    { "code": "llm_failed", "message": "llm request failed" }
-  ],
-  "meta": {
-    "cache_hit": false,
-    "stt_latency_ms": 1200,
-    "llm_latency_ms": 650,
-    "system_prompt_version": "20260102160445"
-  }
+  "transcript": "string",
+  "response": [
+    "string"
+  ]
 }
 ```
+
+`transcript` is included only when audio was provided.
 
 ### Error responses
 Common error codes:
 - `missing_api_key` / `invalid_api_key`
-- `invalid_request` / `missing_prompt`
+- `invalid_request` (missing messages, invalid roles, or audio mismatch)
 - `stt_failed` (STT provider error)
 - `llm_failed` (LLM provider error)
 
 ## Idempotency and caching
-The server computes a `dialog_hash` from API key, user data, prompt, audio/transcript, and time window.
-If a request repeats with the same inputs in the same window, the cached response is returned with `meta.cache_hit=true`.
+The server computes an internal dialog hash from API key, user data, biography, messages, audio, and time window.
+If a request repeats with the same inputs in the same window, a cached response may be returned.
 
 ## Client-side recommendations
-- Store `dialog_hash` and `user_hash` for correlation in your client app.
 - Always send `dialog_id` and `step_id` for stable cache behavior.
-- If audio upload is slow, fall back to text-only using `transcript`.
+- If audio upload is slow, fall back to text-only by sending `messages` with `content`.
