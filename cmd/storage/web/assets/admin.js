@@ -1,9 +1,5 @@
 (() => {
   const sessionKey = "adminSession";
-  const apiBaseKey = "apiBase";
-
-  const apiBaseInput = document.getElementById("api-base");
-  const saveApiBaseBtn = document.getElementById("save-api-base");
   const loginPanel = document.getElementById("login-panel");
   const adminPanel = document.getElementById("admin-panel");
   const loginMessage = document.getElementById("login-message");
@@ -41,24 +37,8 @@
     target.className = tone === "error" ? "text-danger" : tone === "success" ? "text-success" : "text-muted";
   }
 
-  function normalizeBase(value) {
-    return value.replace(/\/$/, "");
-  }
-
   function getApiBase() {
-    const saved = localStorage.getItem(apiBaseKey);
-    if (saved && saved.trim() !== "") {
-      return normalizeBase(saved.trim());
-    }
-    return normalizeBase(window.location.origin);
-  }
-
-  function setApiBase(value) {
-    if (!value) {
-      localStorage.removeItem(apiBaseKey);
-      return;
-    }
-    localStorage.setItem(apiBaseKey, normalizeBase(value));
+    return window.location.origin.replace(/\/$/, "");
   }
 
   async function apiFetch(path, options = {}) {
@@ -254,12 +234,6 @@
     showLogin();
   }
 
-  saveApiBaseBtn.addEventListener("click", () => {
-    const value = apiBaseInput.value.trim();
-    setApiBase(value);
-    setMessage(adminMessage, "Адрес сохранен", "success");
-  });
-
   sendOtpBtn.addEventListener("click", sendOtp);
   verifyOtpBtn.addEventListener("click", verifyOtp);
   logoutBtn.addEventListener("click", logout);
@@ -272,9 +246,6 @@
     loadStats();
     loadLogs();
   });
-
-  const savedBase = localStorage.getItem(apiBaseKey);
-  apiBaseInput.value = savedBase || window.location.origin;
 
   if (localStorage.getItem(sessionKey)) {
     showAdmin().catch(() => logout());
