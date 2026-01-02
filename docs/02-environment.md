@@ -34,6 +34,7 @@ yc config set folder-id b1go18ta52hg00o51kkg
 - `LLM_PROVIDER` (`yandex` or `mock`)
 - `DEFAULT_TIME_WINDOW_SEC` (default: `600`)
 - `YC_IAM_TOKEN` (optional for local; otherwise metadata is used)
+- `CLIENT_DOC_PATH` (optional; path to `client.md` to serve at `/client.md`)
 
 ### Storage service
 - `PORT` (default: `8081`)

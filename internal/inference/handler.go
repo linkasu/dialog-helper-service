@@ -10,6 +10,8 @@ import (
 	"log"
 	"mime/multipart"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -53,10 +55,28 @@ func NewHandler(cfg config.InferenceConfig, storageClient *storageclient.Client,
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/healthz", h.handleHealth)
 	mux.HandleFunc("/v1/infer", h.handleInfer)
+	mux.HandleFunc("/client.md", h.handleClientDoc)
 }
 
 func (h *Handler) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (h *Handler) handleClientDoc(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+
+	doc, err := loadClientDoc()
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not_found", "client doc not found")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(doc)
 }
 
 func (h *Handler) handleInfer(w http.ResponseWriter, r *http.Request) {
@@ -362,6 +382,28 @@ func resolveContainerAudioType(contentType, fileName string) (string, error) {
 	default:
 		return "", errors.New("unsupported audio type")
 	}
+}
+
+func loadClientDoc() ([]byte, error) {
+	paths := make([]string, 0, 4)
+	if envPath := strings.TrimSpace(os.Getenv("CLIENT_DOC_PATH")); envPath != "" {
+		paths = append(paths, envPath)
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		paths = append(paths, filepath.Join(cwd, "client.md"))
+	}
+	if exe, err := os.Executable(); err == nil {
+		paths = append(paths, filepath.Join(filepath.Dir(exe), "client.md"))
+	}
+	paths = append(paths, "/app/client.md")
+
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err == nil && len(data) > 0 {
+			return data, nil
+		}
+	}
+	return nil, errors.New("client doc not found")
 }
 
 func newRequestID() string {

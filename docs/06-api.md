@@ -2,6 +2,9 @@
 
 OpenAPI spec: `api/openapi.yaml`.
 
+## GET /client.md
+Returns the public client integration guide (Markdown).
+
 ## POST /v1/infer
 Multipart request with audio and JSON payload.
 

@@ -9,6 +9,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/inference ./cmd/infer
 
 FROM gcr.io/distroless/base-debian12:nonroot
 COPY --from=build /out/inference /app/inference
+COPY client.md /app/client.md
 
 EXPOSE 8080
 USER nonroot:nonroot
