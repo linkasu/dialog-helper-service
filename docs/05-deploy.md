@@ -56,4 +56,65 @@ yc serverless container get --name dialog-helper-inference --folder-id b1go18ta5
 ```
 
 ## 6) API Gateway
-Update `api/api-gateway.yaml` with `INFERENCE_URL`, `STORAGE_URL`, and `SERVICE_ACCOUNT_ID`, then create the gateway.
+Allow the gateway service account to invoke containers:
+```
+yc serverless container add-access-binding \
+  --name dialog-helper-inference \
+  --folder-id b1go18ta52hg00o51kkg \
+  --role serverless.containers.invoker \
+  --subject serviceAccount:<service-account-id>
+
+yc serverless container add-access-binding \
+  --name dialog-helper-storage \
+  --folder-id b1go18ta52hg00o51kkg \
+  --role serverless.containers.invoker \
+  --subject serviceAccount:<service-account-id>
+```
+
+Create the gateway from `api/api-gateway.yaml` (uses `{{INFERENCE_CONTAINER_ID}}`, `{{STORAGE_CONTAINER_ID}}`, `{{SERVICE_ACCOUNT_ID}}` variables):
+```
+export INFERENCE_CONTAINER_ID=<inference-container-id>
+export STORAGE_CONTAINER_ID=<storage-container-id>
+
+python3 - <<'PY'
+from pathlib import Path
+
+content = Path("api/api-gateway.yaml").read_text()
+content = content.replace("{{SERVICE_ACCOUNT_ID}}", "<service-account-id>")
+content = content.replace("{{INFERENCE_CONTAINER_ID}}", "<inference-container-id>")
+content = content.replace("{{STORAGE_CONTAINER_ID}}", "<storage-container-id>")
+Path("/tmp/api-gateway.yaml").write_text(content)
+PY
+
+yc serverless api-gateway create dialog-helper-gateway \
+  --folder-id b1go18ta52hg00o51kkg \
+  --spec /tmp/api-gateway.yaml
+```
+
+Get the gateway URL:
+```
+yc serverless api-gateway get dialog-helper-gateway --folder-id b1go18ta52hg00o51kkg --format json
+```
+
+Allow public access to the gateway (optional, if you want unauthenticated clients):
+```
+yc serverless api-gateway add-access-binding dialog-helper-gateway \
+  --folder-id b1go18ta52hg00o51kkg \
+  --role api-gateway.viewer \
+  --subject system:allUsers
+```
+
+Optional hardening: remove public invocation from containers after the gateway is ready.
+```
+yc serverless container remove-access-binding \
+  --name dialog-helper-inference \
+  --folder-id b1go18ta52hg00o51kkg \
+  --role serverless.containers.invoker \
+  --subject system:allUsers
+
+yc serverless container remove-access-binding \
+  --name dialog-helper-storage \
+  --folder-id b1go18ta52hg00o51kkg \
+  --role serverless.containers.invoker \
+  --subject system:allUsers
+```

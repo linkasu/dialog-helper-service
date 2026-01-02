@@ -3,13 +3,14 @@ info:
   title: Dialog Helper API Gateway
   version: 0.1.0
 x-yc-apigateway:
-  service_account_id: ${SERVICE_ACCOUNT_ID}
+  service_account_id: "{{SERVICE_ACCOUNT_ID}}"
 paths:
   /healthz:
     get:
       x-yc-apigateway-integration:
-        type: http
-        url: ${INFERENCE_URL}/healthz
+        type: serverless_containers
+        container_id: "{{INFERENCE_CONTAINER_ID}}"
+        service_account_id: "{{SERVICE_ACCOUNT_ID}}"
         httpMethod: GET
       responses:
         "200":
@@ -17,8 +18,9 @@ paths:
   /v1/infer:
     post:
       x-yc-apigateway-integration:
-        type: http
-        url: ${INFERENCE_URL}/v1/infer
+        type: serverless_containers
+        container_id: "{{INFERENCE_CONTAINER_ID}}"
+        service_account_id: "{{SERVICE_ACCOUNT_ID}}"
         httpMethod: POST
         headers:
           X-API-KEY: "$request.header.X-API-KEY"
@@ -28,8 +30,9 @@ paths:
   /v1/admin/keys:
     post:
       x-yc-apigateway-integration:
-        type: http
-        url: ${STORAGE_URL}/v1/admin/keys
+        type: serverless_containers
+        container_id: "{{STORAGE_CONTAINER_ID}}"
+        service_account_id: "{{SERVICE_ACCOUNT_ID}}"
         httpMethod: POST
         headers:
           X-ADMIN-KEY: "$request.header.X-ADMIN-KEY"
@@ -39,8 +42,9 @@ paths:
   /v1/admin/system-prompt:
     get:
       x-yc-apigateway-integration:
-        type: http
-        url: ${STORAGE_URL}/v1/admin/system-prompt
+        type: serverless_containers
+        container_id: "{{STORAGE_CONTAINER_ID}}"
+        service_account_id: "{{SERVICE_ACCOUNT_ID}}"
         httpMethod: GET
         headers:
           X-ADMIN-KEY: "$request.header.X-ADMIN-KEY"
@@ -49,8 +53,9 @@ paths:
           description: OK
     post:
       x-yc-apigateway-integration:
-        type: http
-        url: ${STORAGE_URL}/v1/admin/system-prompt
+        type: serverless_containers
+        container_id: "{{STORAGE_CONTAINER_ID}}"
+        service_account_id: "{{SERVICE_ACCOUNT_ID}}"
         httpMethod: POST
         headers:
           X-ADMIN-KEY: "$request.header.X-ADMIN-KEY"
