@@ -55,6 +55,13 @@ type APIError struct {
 	Message string `json:"message"`
 }
 
+type APIKeyInfo struct {
+	ClientID           string   `json:"client_id"`
+	Status             string   `json:"status"`
+	Scopes             []string `json:"scopes,omitempty"`
+	RateLimitPerMinute int      `json:"rate_limit_per_minute,omitempty"`
+}
+
 type APIKeyCreateRequest struct {
 	ClientID           string   `json:"client_id"`
 	Scopes             []string `json:"scopes,omitempty"`

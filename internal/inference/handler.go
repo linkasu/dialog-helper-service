@@ -1,0 +1,388 @@
+package inference
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"io"
+	"log"
+	"mime/multipart"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/linkasu/dialog-helper-service/internal/auth"
+	"github.com/linkasu/dialog-helper-service/internal/config"
+	"github.com/linkasu/dialog-helper-service/internal/hash"
+	"github.com/linkasu/dialog-helper-service/internal/models"
+	"github.com/linkasu/dialog-helper-service/internal/normalize"
+	"github.com/linkasu/dialog-helper-service/internal/prompt"
+	"github.com/linkasu/dialog-helper-service/internal/providers"
+	"github.com/linkasu/dialog-helper-service/internal/storage"
+	"github.com/linkasu/dialog-helper-service/internal/storageclient"
+)
+
+const (
+	formPayloadField = "payload"
+)
+
+type Handler struct {
+	cfg          config.InferenceConfig
+	storage      *storageclient.Client
+	stt          providers.STTClient
+	llm          providers.LLMClient
+	promptLoader *PromptLoader
+	keyCache     *auth.KeyCache
+	rateLimiter  *auth.RateLimiter
+}
+
+func NewHandler(cfg config.InferenceConfig, storageClient *storageclient.Client, stt providers.STTClient, llm providers.LLMClient, promptLoader *PromptLoader) *Handler {
+	return &Handler{
+		cfg:          cfg,
+		storage:      storageClient,
+		stt:          stt,
+		llm:          llm,
+		promptLoader: promptLoader,
+		keyCache:     auth.NewKeyCache(1 * time.Minute),
+		rateLimiter:  auth.NewRateLimiter(),
+	}
+}
+
+func (h *Handler) Register(mux *http.ServeMux) {
+	mux.HandleFunc("/healthz", h.handleHealth)
+	mux.HandleFunc("/v1/infer", h.handleInfer)
+}
+
+func (h *Handler) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (h *Handler) handleInfer(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+
+	requestID := newRequestID()
+	w.Header().Set("X-Request-ID", requestID)
+
+	apiKey := strings.TrimSpace(r.Header.Get("X-API-KEY"))
+	if apiKey == "" {
+		writeError(w, http.StatusUnauthorized, "missing_api_key", "X-API-KEY header required")
+		return
+	}
+	apiKeyHash := auth.HashAPIKey(apiKey)
+
+	keyInfo, ok := h.keyCache.Get(apiKeyHash)
+	if !ok {
+		info, ok, err := h.storage.VerifyAPIKey(r.Context(), apiKeyHash)
+		if err != nil {
+			status := http.StatusInternalServerError
+			if errors.Is(err, storageclient.ErrUnauthorized) {
+				status = http.StatusUnauthorized
+			}
+			writeError(w, status, "auth_failed", "api key verification failed")
+			return
+		}
+		if !ok || info.Status != auth.StatusActive {
+			writeError(w, http.StatusUnauthorized, "invalid_api_key", "invalid api key")
+			return
+		}
+		keyInfo = info
+		h.keyCache.Set(apiKeyHash, info)
+	}
+
+	if !h.rateLimiter.Allow(apiKeyHash, keyInfo.RateLimitPerMinute) {
+		writeError(w, http.StatusTooManyRequests, "rate_limited", "rate limit exceeded")
+		return
+	}
+
+	payload, audioBytes, audioType, err := readMultipartPayload(w, r, h.cfg.MaxAudioBytes)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+
+	if strings.TrimSpace(payload.Prompt) == "" {
+		writeError(w, http.StatusBadRequest, "missing_prompt", "prompt is required")
+		return
+	}
+
+	language := strings.TrimSpace(payload.Language)
+	if language == "" {
+		language = h.cfg.DefaultLanguage
+	}
+
+	userHash := hash.HashUser(payload.UserID, payload.UserProfile)
+	promptHash := hash.HashPrompt(payload.Prompt)
+	audioHash := ""
+	if len(audioBytes) > 0 {
+		audioHash = hash.SHA256HexBytes(audioBytes)
+	} else if payload.Transcript != "" {
+		audioHash = hash.SHA256HexString(payload.Transcript)
+	} else {
+		audioHash = hash.SHA256HexString("no-audio")
+	}
+
+	dialogHash := hash.BuildDialogHash(hash.DialogHashInput{
+		APIKeyHash: apiKeyHash,
+		UserHash:   userHash,
+		PromptHash: promptHash,
+		AudioHash:  audioHash,
+		Language:   language,
+		Persona:    payload.Persona,
+		DialogID:   payload.DialogID,
+		StepID:     payload.StepID,
+		Now:        time.Now().UTC(),
+		WindowSec:  chooseTimeWindow(payload.TimeWindowSec, h.cfg.TimeWindowSec),
+	})
+
+	if cached, ok, err := h.storage.GetResult(r.Context(), dialogHash); err == nil && ok {
+		promptInfo, _ := h.promptLoader.Get(r.Context())
+		resp := models.InferResponse{
+			RequestID:  requestID,
+			DialogHash: cached.DialogHash,
+			UserHash:   cached.UserHash,
+			Transcript: models.TranscriptResult{Text: cached.Transcript, Language: language},
+			Candidates: cached.Candidates,
+			Meta: models.Meta{
+				CacheHit:            true,
+				SystemPromptVersion: promptInfo.Version,
+			},
+		}
+		writeJSON(w, http.StatusOK, resp)
+		return
+	}
+
+	transcript := strings.TrimSpace(payload.Transcript)
+	sttLatency := int64(0)
+	if len(audioBytes) > 0 {
+		start := time.Now()
+		sttResult, err := h.stt.Transcribe(r.Context(), providers.STTRequest{
+			Audio:              audioBytes,
+			ContainerAudioType: audioType,
+			Language:           language,
+		})
+		sttLatency = time.Since(start).Milliseconds()
+		if err != nil {
+			log.Printf("stt error: %v", err)
+			writeError(w, http.StatusBadGateway, "stt_failed", "speech-to-text failed")
+			return
+		}
+		transcript = strings.TrimSpace(sttResult.Transcript)
+	}
+
+	promptInfo, err := h.promptLoader.Get(r.Context())
+	if err != nil {
+		log.Printf("prompt load error: %v", err)
+		writeError(w, http.StatusInternalServerError, "prompt_failed", "prompt load failed")
+		return
+	}
+
+	systemPrompt := prompt.NormalizeSystemPrompt(promptInfo.Prompt)
+	userPrompt := prompt.BuildUserMessage(payload.Prompt, transcript)
+
+	maxCandidates := h.cfg.DefaultMaxCandidates
+	if payload.Options != nil && payload.Options.MaxCandidates > 0 {
+		maxCandidates = payload.Options.MaxCandidates
+	}
+	temperature := h.cfg.DefaultTemperature
+	if payload.Options != nil && payload.Options.Temperature > 0 {
+		temperature = payload.Options.Temperature
+	}
+
+	llmLatency := int64(0)
+	var candidates []models.AnswerCandidate
+	var apiErrors []models.APIError
+
+	if userPrompt != "" {
+		start := time.Now()
+		llmResult, err := h.llm.Complete(r.Context(), providers.LLMRequest{
+			SystemPrompt: systemPrompt,
+			UserPrompt:   userPrompt,
+			Temperature:  temperature,
+			MaxTokens:    h.cfg.DefaultMaxTokens,
+			ModelURI:     h.cfg.ModelURI,
+		})
+		llmLatency = time.Since(start).Milliseconds()
+		if err != nil {
+			log.Printf("llm error: %v", err)
+			apiErrors = append(apiErrors, models.APIError{Code: "llm_failed", Message: "llm request failed"})
+		} else {
+			candidates = normalize.NormalizeCandidates(llmResult.Texts, maxCandidates, language)
+		}
+	}
+
+	resp := models.InferResponse{
+		RequestID:  requestID,
+		DialogHash: dialogHash,
+		UserHash:   userHash,
+		Transcript: models.TranscriptResult{Text: transcript, Language: language},
+		Candidates: candidates,
+		Errors:     apiErrors,
+		Meta: models.Meta{
+			CacheHit:            false,
+			STTLatencyMs:        sttLatency,
+			LLMLatencyMs:        llmLatency,
+			SystemPromptVersion: promptInfo.Version,
+		},
+	}
+
+	if h.cfg.PersistResults {
+		metaPayload, _ := json.Marshal(map[string]interface{}{
+			"stt_latency_ms":        sttLatency,
+			"llm_latency_ms":        llmLatency,
+			"system_prompt_version": promptInfo.Version,
+		})
+		record := storage.ResultRecord{
+			DialogHash: dialogHash,
+			UserHash:   userHash,
+			Transcript: transcript,
+			Candidates: candidates,
+			MetaJSON:   string(metaPayload),
+			CreatedAt:  time.Now().UTC(),
+		}
+		go h.persistAsync(context.Background(), record)
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) persistAsync(ctx context.Context, record storage.ResultRecord) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	if err := h.storage.Persist(ctx, record); err != nil {
+		log.Printf("persist error: %v", err)
+	}
+}
+
+func chooseTimeWindow(requested, fallback int) int {
+	if requested > 0 {
+		return requested
+	}
+	if fallback > 0 {
+		return fallback
+	}
+	return 600
+}
+
+func readMultipartPayload(w http.ResponseWriter, r *http.Request, maxBytes int64) (models.InferPayload, []byte, string, error) {
+	if r.Body == nil {
+		return models.InferPayload{}, nil, "", errors.New("empty request body")
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+	if err := r.ParseMultipartForm(maxBytes); err != nil {
+		return models.InferPayload{}, nil, "", errors.New("invalid multipart payload")
+	}
+
+	payloadField := r.FormValue(formPayloadField)
+	if payloadField == "" {
+		payloadField = r.FormValue("metadata")
+	}
+	if payloadField == "" {
+		payloadField = r.FormValue("json")
+	}
+
+	var payload models.InferPayload
+	if payloadField != "" {
+		if err := json.Unmarshal([]byte(payloadField), &payload); err != nil {
+			return models.InferPayload{}, nil, "", errors.New("invalid payload json")
+		}
+	}
+
+	file, header, err := findAudioFile(r.MultipartForm)
+	if err != nil {
+		if payload.Transcript == "" {
+			return models.InferPayload{}, nil, "", err
+		}
+		return payload, nil, "", nil
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return models.InferPayload{}, nil, "", errors.New("failed to read audio")
+	}
+
+	contentType := header.Header.Get("Content-Type")
+	containerType, err := resolveContainerAudioType(contentType, header.Filename)
+	if err != nil {
+		return models.InferPayload{}, nil, "", err
+	}
+
+	return payload, data, containerType, nil
+}
+
+func findAudioFile(form *multipart.Form) (multipart.File, *multipart.FileHeader, error) {
+	if form == nil {
+		return nil, nil, errors.New("multipart form is required")
+	}
+	for _, field := range []string{"audio", "file"} {
+		if headers := form.File[field]; len(headers) > 0 {
+			file, err := headers[0].Open()
+			if err != nil {
+				return nil, nil, errors.New("failed to open audio")
+			}
+			return file, headers[0], nil
+		}
+	}
+	for _, headers := range form.File {
+		if len(headers) == 0 {
+			continue
+		}
+		file, err := headers[0].Open()
+		if err != nil {
+			return nil, nil, errors.New("failed to open audio")
+		}
+		return file, headers[0], nil
+	}
+	return nil, nil, errors.New("audio file is required")
+}
+
+func resolveContainerAudioType(contentType, fileName string) (string, error) {
+	lowerName := strings.ToLower(fileName)
+	lowerType := strings.ToLower(strings.Split(contentType, ";")[0])
+
+	switch {
+	case strings.HasSuffix(lowerName, ".ogg"):
+		return "OGG_OPUS", nil
+	case strings.HasSuffix(lowerName, ".mp3"):
+		return "MP3", nil
+	case strings.HasSuffix(lowerName, ".wav"):
+		return "WAV", nil
+	case lowerType == "audio/ogg" || lowerType == "application/ogg":
+		return "OGG_OPUS", nil
+	case lowerType == "audio/mpeg" || lowerType == "audio/mp3" || lowerType == "audio/x-mp3" || lowerType == "audio/x-mpeg":
+		return "MP3", nil
+	case lowerType == "audio/wav" || lowerType == "audio/x-wav":
+		return "WAV", nil
+	default:
+		return "", errors.New("unsupported audio type")
+	}
+}
+
+func newRequestID() string {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return hex.EncodeToString([]byte(time.Now().UTC().Format("20060102150405")))
+	}
+	return hex.EncodeToString(buf)
+}
+
+func writeJSON(w http.ResponseWriter, status int, payload interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if payload != nil {
+		_ = json.NewEncoder(w).Encode(payload)
+	}
+}
+
+func writeError(w http.ResponseWriter, status int, code, message string) {
+	writeJSON(w, status, map[string]string{
+		"error":   code,
+		"message": message,
+	})
+}
