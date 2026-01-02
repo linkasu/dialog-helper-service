@@ -168,6 +168,7 @@ func (c *Client) VerifyAPIKey(ctx context.Context, apiKeyHash string) (models.AP
 }
 
 func (c *Client) addInternalHeaders(req *http.Request) {
+	req.Header.Set("X-DH-Internal-Token", c.internalToken)
 	req.Header.Set("X-Internal-Token", c.internalToken)
 }
 

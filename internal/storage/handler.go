@@ -308,7 +308,10 @@ func (h *Handler) handleAdminPrompt(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) withInternalAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		token := r.Header.Get("X-Internal-Token")
+		token := r.Header.Get("X-DH-Internal-Token")
+		if token == "" {
+			token = r.Header.Get("X-Internal-Token")
+		}
 		if token == "" || token != h.internalToken {
 			writeError(w, http.StatusUnauthorized, "unauthorized", "invalid internal token")
 			return
