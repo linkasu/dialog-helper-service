@@ -20,10 +20,15 @@ var ErrUnauthorized = errors.New("unauthorized")
 type Client struct {
 	baseURL       string
 	internalToken string
+	tokenProvider TokenProvider
 	httpClient    *http.Client
 }
 
-func New(baseURL, internalToken string) (*Client, error) {
+type TokenProvider interface {
+	Token(ctx context.Context) (string, error)
+}
+
+func New(baseURL, internalToken string, provider TokenProvider) (*Client, error) {
 	base := strings.TrimRight(baseURL, "/")
 	if base == "" {
 		return nil, errors.New("storage base url is required")
@@ -35,6 +40,7 @@ func New(baseURL, internalToken string) (*Client, error) {
 	return &Client{
 		baseURL:       base,
 		internalToken: internalToken,
+		tokenProvider: provider,
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -47,7 +53,9 @@ func (c *Client) GetConfig(ctx context.Context, key string) (storage.ConfigItem,
 	if err != nil {
 		return storage.ConfigItem{}, false, err
 	}
-	c.addInternalHeaders(req)
+	if err := c.addInternalHeaders(ctx, req); err != nil {
+		return storage.ConfigItem{}, false, err
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -76,7 +84,9 @@ func (c *Client) GetResult(ctx context.Context, dialogHash string) (storage.Resu
 	if err != nil {
 		return storage.ResultRecord{}, false, err
 	}
-	c.addInternalHeaders(req)
+	if err := c.addInternalHeaders(ctx, req); err != nil {
+		return storage.ResultRecord{}, false, err
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -116,7 +126,9 @@ func (c *Client) Persist(ctx context.Context, record storage.ResultRecord) error
 	if err != nil {
 		return err
 	}
-	c.addInternalHeaders(req)
+	if err := c.addInternalHeaders(ctx, req); err != nil {
+		return err
+	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(req)
@@ -143,7 +155,9 @@ func (c *Client) VerifyAPIKey(ctx context.Context, apiKeyHash string) (models.AP
 	if err != nil {
 		return models.APIKeyInfo{}, false, err
 	}
-	c.addInternalHeaders(req)
+	if err := c.addInternalHeaders(ctx, req); err != nil {
+		return models.APIKeyInfo{}, false, err
+	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(req)
@@ -167,9 +181,18 @@ func (c *Client) VerifyAPIKey(ctx context.Context, apiKeyHash string) (models.AP
 	return info, true, nil
 }
 
-func (c *Client) addInternalHeaders(req *http.Request) {
+func (c *Client) addInternalHeaders(ctx context.Context, req *http.Request) error {
 	req.Header.Set("X-DH-Internal-Token", c.internalToken)
 	req.Header.Set("X-Internal-Token", c.internalToken)
+	if c.tokenProvider == nil {
+		return nil
+	}
+	token, err := c.tokenProvider.Token(ctx)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	return nil
 }
 
 func readHTTPError(resp *http.Response) error {

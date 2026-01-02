@@ -20,13 +20,14 @@ func main() {
 		log.Fatalf("config error: %v", err)
 	}
 
-	storageClient, err := storageclient.New(cfg.StorageURL, cfg.InternalToken)
+	provider := iam.NewDefaultProvider()
+
+	storageClient, err := storageclient.New(cfg.StorageURL, cfg.InternalToken, provider)
 	if err != nil {
 		log.Fatalf("storage client error: %v", err)
 	}
 
 	promptLoader := inference.NewPromptLoader(storageClient, cfg.ConfigCacheTTL, cfg.SystemPromptFallback)
-	provider := iam.NewDefaultProvider()
 
 	sttClient := buildSTT(cfg, provider)
 	llmClient := buildLLM(cfg, provider)
