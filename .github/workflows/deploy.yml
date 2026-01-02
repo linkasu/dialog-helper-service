@@ -23,6 +23,7 @@ jobs:
       YDB_DSN: ${{ secrets.YDB_DSN }}
       INTERNAL_AUTH_TOKEN: ${{ secrets.INTERNAL_AUTH_TOKEN }}
       ADMIN_MASTER_KEY: ${{ secrets.ADMIN_MASTER_KEY }}
+      E2E_API_KEY: ${{ secrets.E2E_API_KEY }}
       YC_SERVICE_ACCOUNT_KEY: ${{ secrets.YC_SERVICE_ACCOUNT_KEY }}
       GATEWAY_NAME: ${{ vars.GATEWAY_NAME }}
       IMAGE_TAG: latest
@@ -86,10 +87,6 @@ jobs:
 
       - name: End-to-end test (gateway)
         run: |
-          if [ -z "${ADMIN_MASTER_KEY}" ]; then
-            echo "Missing ADMIN_MASTER_KEY secret." >&2
-            exit 1
-          fi
           GATEWAY_NAME="${GATEWAY_NAME:-dialog-helper-gateway}"
           GATEWAY_DOMAIN=$(yc serverless api-gateway get --name "${GATEWAY_NAME}" --folder-id "${FOLDER_ID}" --format json | jq -r '.domain')
           if [ -z "${GATEWAY_DOMAIN}" ] || [ "${GATEWAY_DOMAIN}" = "null" ]; then
@@ -97,13 +94,20 @@ jobs:
             exit 1
           fi
           GATEWAY_URL="https://${GATEWAY_DOMAIN}"
-          API_KEY=$(curl -sSf -X POST "${GATEWAY_URL}/v1/admin/keys" \
-            -H "X-ADMIN-KEY: ${ADMIN_MASTER_KEY}" \
-            -H "Content-Type: application/json" \
-            -d '{"client_id":"ci","scopes":["infer"],"rate_limit_per_minute":60}' | jq -r '.api_key')
-          if [ -z "${API_KEY}" ] || [ "${API_KEY}" = "null" ]; then
-            echo "Failed to create API key." >&2
-            exit 1
+          API_KEY="${E2E_API_KEY}"
+          if [ -z "${API_KEY}" ]; then
+            if [ -z "${ADMIN_MASTER_KEY}" ]; then
+              echo "Missing E2E_API_KEY or ADMIN_MASTER_KEY secret." >&2
+              exit 1
+            fi
+            API_KEY=$(curl -sSf -X POST "${GATEWAY_URL}/v1/admin/keys" \
+              -H "X-ADMIN-KEY: ${ADMIN_MASTER_KEY}" \
+              -H "Content-Type: application/json" \
+              -d '{"client_id":"ci","scopes":["infer"],"rate_limit_per_minute":60}' | jq -r '.api_key')
+            if [ -z "${API_KEY}" ] || [ "${API_KEY}" = "null" ]; then
+              echo "Failed to create API key." >&2
+              exit 1
+            fi
           fi
           echo "::add-mask::${API_KEY}"
           RESPONSE=$(curl -sSf -X POST "${GATEWAY_URL}/v1/infer" \
