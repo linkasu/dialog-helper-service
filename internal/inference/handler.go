@@ -61,7 +61,13 @@ func NewHandler(cfg config.InferenceConfig, storageClient *storageclient.Client,
 }
 
 func (h *Handler) Register(mux *http.ServeMux) {
-	mux.HandleFunc("/healthz", h.handleHealth)
+	h.RegisterRoutes(mux, true)
+}
+
+func (h *Handler) RegisterRoutes(mux *http.ServeMux, includeHealth bool) {
+	if includeHealth {
+		mux.HandleFunc("/healthz", h.handleHealth)
+	}
 	mux.HandleFunc("/v1/infer", h.handleInfer)
 	mux.HandleFunc("/client.md", h.handleClientDoc)
 }

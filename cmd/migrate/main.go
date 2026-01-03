@@ -97,5 +97,8 @@ func isExists(err error) bool {
 }
 
 func isNotFound(err error) bool {
-	return strings.Contains(strings.ToLower(err.Error()), "not found")
+	lower := strings.ToLower(err.Error())
+	return strings.Contains(lower, "not found") ||
+		strings.Contains(lower, "does not exist") ||
+		strings.Contains(lower, "cannot find table")
 }

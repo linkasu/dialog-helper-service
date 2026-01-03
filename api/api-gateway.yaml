@@ -85,7 +85,7 @@ paths:
     get:
       x-yc-apigateway-integration:
         type: serverless_containers
-        container_id: "{{INFERENCE_CONTAINER_ID}}"
+        container_id: "{{STORAGE_CONTAINER_ID}}"
         service_account_id: "{{SERVICE_ACCOUNT_ID}}"
         httpMethod: GET
       responses:
@@ -95,7 +95,7 @@ paths:
     get:
       x-yc-apigateway-integration:
         type: serverless_containers
-        container_id: "{{INFERENCE_CONTAINER_ID}}"
+        container_id: "{{STORAGE_CONTAINER_ID}}"
         service_account_id: "{{SERVICE_ACCOUNT_ID}}"
         httpMethod: GET
       responses:
@@ -105,7 +105,7 @@ paths:
     post:
       x-yc-apigateway-integration:
         type: serverless_containers
-        container_id: "{{INFERENCE_CONTAINER_ID}}"
+        container_id: "{{STORAGE_CONTAINER_ID}}"
         service_account_id: "{{SERVICE_ACCOUNT_ID}}"
         httpMethod: POST
         headers:

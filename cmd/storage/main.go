@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -13,7 +14,9 @@ import (
 	"github.com/linkasu/dialog-helper-service/internal/cloudlogging"
 	"github.com/linkasu/dialog-helper-service/internal/config"
 	"github.com/linkasu/dialog-helper-service/internal/iam"
+	"github.com/linkasu/dialog-helper-service/internal/inference"
 	"github.com/linkasu/dialog-helper-service/internal/storage"
+	"github.com/linkasu/dialog-helper-service/internal/storageclient"
 )
 
 //go:embed web
@@ -23,6 +26,15 @@ func main() {
 	cfg, err := config.LoadStorageConfig()
 	if err != nil {
 		log.Fatalf("config error: %v", err)
+	}
+
+	if os.Getenv("STORAGE_URL") == "" {
+		localBase := "http://127.0.0.1:" + cfg.Port
+		_ = os.Setenv("STORAGE_URL", localBase)
+	}
+	inferCfg, err := config.LoadInferenceConfig()
+	if err != nil {
+		log.Fatalf("inference config error: %v", err)
 	}
 
 	ctx := context.Background()
@@ -61,8 +73,18 @@ func main() {
 		AdminSessionTTL:  cfg.AdminSessionTTL,
 		LogReader:        logReader,
 	})
+
+	storageClient, err := storageclient.New(inferCfg.StorageURL, cfg.InternalToken, nil)
+	if err != nil {
+		log.Fatalf("storage client error: %v", err)
+	}
+	promptLoader := inference.NewPromptLoader(storageClient, inferCfg.ConfigCacheTTL, inferCfg.SystemPromptFallback)
+	sttClient := inference.BuildSTT(inferCfg, provider)
+	llmClient := inference.BuildLLM(inferCfg, provider)
+	inferHandler := inference.NewHandler(inferCfg, storageClient, sttClient, llmClient, promptLoader)
 	mux := http.NewServeMux()
 	handler.Register(mux)
+	inferHandler.RegisterRoutes(mux, false)
 	registerStatic(mux)
 
 	srv := &http.Server{
@@ -71,7 +93,7 @@ func main() {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	log.Printf("storage service listening on %s", srv.Addr)
+	log.Printf("monolith service listening on %s", srv.Addr)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("server error: %v", err)
 	}

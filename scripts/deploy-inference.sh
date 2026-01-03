@@ -12,7 +12,7 @@ YC_FOLDER_ID="${YC_FOLDER_ID:?YC_FOLDER_ID is required}"
 
 YC_GPT_MODEL_URI="${YC_GPT_MODEL_URI:-}"
 
-image="cr.yandex/${REGISTRY_ID}/dialog-helper-inference:${IMAGE_TAG}"
+image="cr.cloud.yandex.net/${REGISTRY_ID}/dialog-helper-inference:${IMAGE_TAG}"
 
 yc serverless container create --name "${CONTAINER_NAME}" --folder-id "${FOLDER_ID}" || true
 
