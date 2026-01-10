@@ -72,6 +72,7 @@ Supported input formats:
 - MP3 (`audio/mpeg`)
 - WAV (`audio/wav`)
 - OGG/OPUS (`audio/ogg`)
+- WEBM/OPUS (`audio/webm`, `video/webm`)
 
 Default max size: 8 MB (configurable on the server).
 

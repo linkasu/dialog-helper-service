@@ -402,12 +402,16 @@ func resolveContainerAudioType(contentType, fileName string) (string, error) {
 		return "MP3", nil
 	case strings.HasSuffix(lowerName, ".wav"):
 		return "WAV", nil
+	case strings.HasSuffix(lowerName, ".webm"):
+		return "WEBM_OPUS", nil
 	case lowerType == "audio/ogg" || lowerType == "application/ogg":
 		return "OGG_OPUS", nil
 	case lowerType == "audio/mpeg" || lowerType == "audio/mp3" || lowerType == "audio/x-mp3" || lowerType == "audio/x-mpeg":
 		return "MP3", nil
 	case lowerType == "audio/wav" || lowerType == "audio/x-wav":
 		return "WAV", nil
+	case lowerType == "audio/webm" || lowerType == "video/webm":
+		return "WEBM_OPUS", nil
 	default:
 		return "", errors.New("unsupported audio type")
 	}

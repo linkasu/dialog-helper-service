@@ -12,7 +12,7 @@ Multipart request with dialog messages and optional audio.
 - `X-API-KEY: <client key>`
 
 ### Multipart fields
-- `audio`: audio file (MP3/WAV/OGG) for the message marked with `"audio": true`
+- `audio`: audio file (MP3/WAV/OGG/WEBM) for the message marked with `"audio": true`
 - `payload`: JSON-encoded `InferPayload`
 
 ### Payload example
